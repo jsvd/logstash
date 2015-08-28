@@ -100,8 +100,6 @@ module LogStash; class Pipeline
     shutdown_outputs
     wait_outputs
 
-    shutdown_dead_letters
-
     @logger.info("Pipeline shutdown complete.")
     @logger.terminal("Logstash shutdown completed")
 
@@ -280,6 +278,22 @@ module LogStash; class Pipeline
         end
       end
     end
+
+    # sometimes an input is stuck in a blocking I/O so we need to tell it to teardown directly
+    @inputs.each do |input|
+      begin
+        # input teardown must be synchronized since is can be called concurrently by
+        # the input worker thread and from the pipeline thread shutdown method.
+        # this means that input teardown methods must support multiple calls.
+        @run_mutex.synchronize{input.teardown}
+      rescue LogStash::ShutdownSignal
+        # teardown could receive the ShutdownSignal, retry it
+        retry
+      end
+    end
+
+    # No need to send the ShutdownEvent to the filters/outputs nor to wait for
+    # the inputs to finish, because in the #run method we wait for that anyway.
   end # def shutdown
 
   def force_exit
