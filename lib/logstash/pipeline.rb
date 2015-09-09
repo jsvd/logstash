@@ -43,7 +43,6 @@ class LogStash::Pipeline
 
     # @ready requires thread safety since it is typically polled from outside the pipeline thread
     @ready = Concurrent::AtomicBoolean.new(false)
-    @run_mutex = Mutex.new
     @input_threads = []
   end # def initialize
 
@@ -67,12 +66,15 @@ class LogStash::Pipeline
   end
 
   def run
-    # synchronize @input_threads between run and shutdown
-    @run_mutex.synchronize{start_inputs}
-    start_filters if filters?
-    start_outputs
-
-    @ready.make_true
+    begin
+      start_inputs
+      start_filters if filters?
+      start_outputs
+    ensure
+      # it is important to garantee @ready to be true after the startup sequence has been completed
+      # to potentially unblock the shutdown method which may be waiting on @ready to proceed
+      @ready.make_true
+    end
 
     @logger.info("Pipeline started")
     @logger.terminal("Logstash startup completed")
@@ -236,20 +238,23 @@ class LogStash::Pipeline
     end
   end # def outputworker
 
-  # Shutdown this pipeline.
-  #
-  # This method is intended to be called from another thread
+  # initiate the pipeline shutdown sequence
+  # this method is intended to be called from outside the pipeline thread
   def shutdown
+    # shutdown can only start once the pipeline has completed its startup.
+    # avoid potential race conditoon between the startup sequence and this
+    # shutdown method which can be called from another thread at any time
+    sleep(0.1) while !ready?
+
+    # TODO: should we also check against calling shutdown multiple times concurently?
+
     InflightEventsReporter.logger = @logger
     InflightEventsReporter.start(@input_to_filter, @filter_to_output, @outputs)
 
     # sometimes an input is stuck in a blocking I/O so we need to tell it to teardown directly
     @inputs.each do |input|
       begin
-        # input teardown must be synchronized since is can be called concurrently by
-        # the input worker thread and from the pipeline thread shutdown method.
-        # this means that input teardown methods must support multiple calls.
-        @run_mutex.synchronize{input.stop}
+        input.stop
       rescue LogStash::ShutdownSignal
         # teardown could receive the ShutdownSignal, retry it
         retry
