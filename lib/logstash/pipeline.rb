@@ -1,6 +1,7 @@
 # encoding: utf-8
-require "thread" #
+require "thread"
 require "stud/interval"
+require "concurrent"
 require "logstash/namespace"
 require "logstash/errors"
 require "logstash/event"
@@ -45,18 +46,14 @@ class LogStash::Pipeline
       "filter-workers" => 1,
     }
 
+    # @ready requires thread safety since it is typically polled from outside the pipeline thread
+    @ready = Concurrent::AtomicBoolean.new(false)
     @run_mutex = Mutex.new
-    @ready = false
-    @started = false
     @input_threads = []
   end # def initialize
 
   def ready?
-    @run_mutex.synchronize{@ready}
-  end
-
-  def started?
-    @run_mutex.synchronize{@started}
+    @ready.value
   end
 
   def configure(setting, value)
@@ -75,14 +72,12 @@ class LogStash::Pipeline
   end
 
   def run
-    @run_mutex.synchronize{@started = true}
-
     # synchronize @input_threads between run and shutdown
     @run_mutex.synchronize{start_inputs}
     start_filters if filters?
     start_outputs
 
-    @run_mutex.synchronize{@ready = true}
+    @ready.make_true
 
     @logger.info("Pipeline started")
     @logger.terminal("Logstash startup completed")
