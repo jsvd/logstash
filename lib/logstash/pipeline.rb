@@ -251,15 +251,7 @@ class LogStash::Pipeline
     InflightEventsReporter.logger = @logger
     InflightEventsReporter.start(@input_to_filter, @filter_to_output, @outputs)
 
-    # sometimes an input is stuck in a blocking I/O so we need to tell it to teardown directly
-    @inputs.each do |input|
-      begin
-        input.stop
-      rescue LogStash::ShutdownSignal
-        # teardown could receive the ShutdownSignal, retry it
-        retry
-      end
-    end
+    @inputs.each(&:stop)
   end # def shutdown
 
   def plugin(plugin_type, name, *args)
