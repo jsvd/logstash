@@ -115,7 +115,7 @@ puts "Creating commit.."
 
 branch_name = "update_lock_#{Time.now.to_i}"
 `git checkout -b #{branch_name}`
-`git commit Gemfile.jruby-2.5.lock.release -m "Update #{allow_bump_for} plugin versions in gemfile lock"`
+`git commit Gemfile.jruby-2.5.lock.release -m "Update #{allow_bump_for} plugin versions in gemfile lock" --author "logstashmachine"`
 
 puts "Pushing commit.."
 `git remote add upstream git@github.com:elastic/logstash.git`

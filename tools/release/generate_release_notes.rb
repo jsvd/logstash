@@ -113,7 +113,7 @@ IO.write(RELEASE_NOTES_PATH, release_notes.join("\n"))
 puts "Creating commit.."
 branch_name = "update_release_notes_#{Time.now.to_i}"
 `git checkout -b #{branch_name}`
-`git commit docs/static/releasenotes.asciidoc -m "Update release notes for #{current_release}"`
+`git commit docs/static/releasenotes.asciidoc -m "Update release notes for #{current_release}" --author "logstashmachine"`
 
 puts "Pushing commit.."
 `git remote add upstream git@github.com:elastic/logstash.git`
