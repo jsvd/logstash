@@ -15,6 +15,28 @@ This section summarizes the changes in the following releases:
 * <<logstash-8-0-0-alpha2,Logstash 8.0.0-alpha2>>
 * <<logstash-8-0-0-alpha1,Logstash 8.0.0-alpha1>>
 
+---------- GENERATED CONTENT STARTS HERE ------------
+=== Logstash Pull Requests with label v8.2.2
+
+* Switch adoptopenjdk url to adoptium https://github.com/elastic/logstash/pull/14098[#14098]
+* Backport PR #14129 to 8.2: Avoids unnecessary thread sync of PQ notFull state https://github.com/elastic/logstash/pull/14141[#14141]
+* Doc: Add missing release notes https://github.com/elastic/logstash/pull/14169[#14169]
+* Backport PR #14169 to 8.2: Doc: Add missing release notes https://github.com/elastic/logstash/pull/14171[#14171]
+
+=== Logstash Commits between 8.2 and 8.2.2
+
+Computed with "git log --pretty=format:'%h -%d %s (%cr) <%an>' --abbrev-commit --date=relative v8.2.2..8.2"
+
+ebc9b2929 - (HEAD -> 8.2, origin/8.2) Doc: Add PR number as link text in release notes (#14172) (2 weeks ago) <Karen Metts>
+eb5179fb7 - Release notes for 8.2.2 (#14168) (2 weeks ago) <Logstash Machine>
+
+=== Logstash Plugin Release Changelogs ===
+Computed from "git diff v8.2.2..8.2 *.release"
+Changed plugin versions:
+---------- GENERATED CONTENT ENDS HERE ------------
+
+==== Plugins
+
 [[logstash-8-2-2]]
 === Logstash 8.2.2 Release Notes
 
