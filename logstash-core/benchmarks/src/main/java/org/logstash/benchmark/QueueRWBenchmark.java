@@ -109,7 +109,7 @@ public class QueueRWBenchmark {
             }
         });
         for (int i = 0; i < EVENTS_PER_INVOCATION / BATCH_SIZE; ++i) {
-            try (Batch batch = queuePersisted.readBatch(BATCH_SIZE, TimeUnit.SECONDS.toMillis(1))) {
+            try (Batch batch = queuePersisted.readBatch(BATCH_SIZE, TimeUnit.SECONDS.toMillis(1)).deserialize()) {
                 for (final Queueable elem : batch.getElements()) {
                     blackhole.consume(elem);
                 }
