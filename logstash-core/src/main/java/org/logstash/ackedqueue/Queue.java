@@ -612,7 +612,11 @@ public final class Queue implements Closeable {
      * @throws QueueRuntimeException if queue is closed
      * @throws IOException if an IO error occurs
      */
-    public synchronized DeserializedBatch readBatch(int limit, long timeout) throws IOException {
+    public Batch readBatch(int limit, long timeout) throws IOException {
+        return readDeserializedBatch(limit, timeout).deserialize();
+    }
+
+    public synchronized DeserializedBatch readDeserializedBatch(int limit, long timeout) throws IOException {
         lock.lock();
 
         try {

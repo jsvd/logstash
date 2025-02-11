@@ -155,7 +155,7 @@ public final class JRubyAckedQueueExt extends RubyObject {
     }
 
     public AckedBatch readBatch(int limit, long timeout) throws IOException {
-        final Batch batch = queue.readBatch(limit, timeout).deserialize();
+        final Batch batch = queue.readBatch(limit, timeout);
         return Objects.isNull(batch) ? null : AckedBatch.create(batch);
     }
 
