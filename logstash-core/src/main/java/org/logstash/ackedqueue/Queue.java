@@ -590,18 +590,18 @@ public final class Queue implements Closeable {
      * @throws IOException if an IO error occurs
      */
     public synchronized Batch nonBlockReadBatch(int limit) throws IOException {
-        DeserializedBatch deserializedBatch;
+        final SerializedBatchHolder serializedBatchHolder;
         lock.lock();
         try {
             Page p = nextReadPage();
             if (isHeadPage(p) && p.isFullyRead()) {
                 return null;
             }
-            deserializedBatch = readPageBatch(p, limit, 0L);
+            serializedBatchHolder = readPageBatch(p, limit, 0L);
         } finally {
             lock.unlock();
         }
-        return deserializedBatch.deserialize();
+        return serializedBatchHolder.deserialize();
     }
 
     /**
@@ -616,7 +616,7 @@ public final class Queue implements Closeable {
         return readDeserializedBatch(limit, timeout).deserialize();
     }
 
-    public synchronized DeserializedBatch readDeserializedBatch(int limit, long timeout) throws IOException {
+    private synchronized SerializedBatchHolder readDeserializedBatch(int limit, long timeout) throws IOException {
         lock.lock();
 
         try {
@@ -635,7 +635,7 @@ public final class Queue implements Closeable {
      * @return {@link Batch} with read elements or null if nothing was read
      * @throws IOException if an IO error occurs
      */
-    private DeserializedBatch readPageBatch(Page p, int limit, long timeout) throws IOException {
+    private SerializedBatchHolder readPageBatch(Page p, int limit, long timeout) throws IOException {
         int left = limit;
         final List<byte[]> elements = new ArrayList<>(limit);
 
@@ -687,7 +687,7 @@ public final class Queue implements Closeable {
             removeUnreadPage(p);
         }
 
-        return new DeserializedBatch(elements, firstSeqNum, this);
+        return new SerializedBatchHolder(elements, firstSeqNum);
     }
 
     /**
@@ -902,5 +902,19 @@ public final class Queue implements Closeable {
         final long pMinSeq = page.getMinSeqNum();
         final long pMaxSeq = pMinSeq + (long) page.getElementCount();
         return seqNum >= pMinSeq && seqNum < pMaxSeq;
+    }
+
+    class SerializedBatchHolder {
+        private final List<byte[]> elements;
+        private final long firstSeqNum;
+
+        private SerializedBatchHolder(List<byte[]> elements, long firstSeqNum) {
+            this.elements = elements;
+            this.firstSeqNum = firstSeqNum;
+        }
+
+        private Batch deserialize() {
+            return new Batch(elements, firstSeqNum, Queue.this);
+        }
     }
 }
