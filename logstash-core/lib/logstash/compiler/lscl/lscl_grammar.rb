@@ -3618,3 +3618,4 @@ module LogStashCompilerLSCLGrammar
 end
 
 LogStashCompilerLSCLGrammarParser = LogStashCompilerLSCLGrammar::Parser
+
