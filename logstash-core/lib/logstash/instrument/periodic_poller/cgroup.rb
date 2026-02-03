@@ -210,28 +210,152 @@ module LogStash module Instrument module PeriodicPoller
       end
     end
 
+    ## cgroup v2 support
+    # On v2, /proc/self/cgroup contains a single line: `0::/path`
+    # All controllers live under `/sys/fs/cgroup/{path}/`
+    # CPU quota/period are in `cpu.max`, usage and throttle stats in `cpu.stat`
+
+    CGROUP_V2_BASE = "/sys/fs/cgroup"
+    CONTROL_GROUP_V2_RE = Regexp.compile("^0::(/.*)")
+
+    class CGroupV2Resources
+      include LogStash::Util::Loggable
+
+      def cgroup_available?
+        return false unless ::File.exist?(CGROUP_FILE)
+        path = resolve_v2_path
+        !path.nil? && ::File.exist?(::File.join(CGROUP_V2_BASE, path))
+      end
+
+      def controller_groups
+        path = resolve_v2_path
+        {
+          CONTROLLER_CPUACCT_LABEL => CpuAcctV2Resource.new(path),
+          CONTROLLER_CPU_LABEL => CpuV2Resource.new(path)
+        }
+      end
+
+      private
+
+      def resolve_v2_path
+        IO.readlines(CGROUP_FILE).each do |line|
+          matches = CONTROL_GROUP_V2_RE.match(line.strip)
+          return matches[1] if matches
+        end
+        nil
+      end
+    end
+
+    class CpuAcctV2Resource
+      include LogStash::Util::Loggable
+      include ControllerResource
+
+      def initialize(original_path)
+        common_initialize(CGROUP_V2_BASE, "ls.cgroup.cpuacct.path.override", original_path)
+      end
+
+      def to_hash
+        {:control_group => offset_path, :usage_nanos => cpuacct_usage}
+      end
+
+      private
+
+      def cpuacct_usage
+        lines = call_if_file_exists(:read_lines, "cpu.stat", [])
+        lines.each do |line|
+          fields = line.split(/\s+/)
+          next unless fields.size > 1
+          return fields[1].to_i * 1000 if fields.first == "usage_usec"
+        end
+        -1
+      end
+    end
+
+    class CpuV2Resource
+      include LogStash::Util::Loggable
+      include ControllerResource
+
+      def initialize(original_path)
+        common_initialize(CGROUP_V2_BASE, "ls.cgroup.cpu.path.override", original_path)
+      end
+
+      def to_hash
+        quota, period = read_cpu_max
+        {
+          :control_group => offset_path,
+          :cfs_period_micros => period,
+          :cfs_quota_micros => quota,
+          :stat => build_cpu_stats_hash
+        }
+      end
+
+      private
+
+      def read_cpu_max
+        lines = call_if_file_exists(:read_lines, "cpu.max", [])
+        return [-1, -1] if lines.empty?
+        parts = lines.first.strip.split(/\s+/)
+        quota = parts[0] == "max" ? -1 : parts[0].to_i
+        period = parts[1].to_i
+        [quota, period]
+      end
+
+      def build_cpu_stats_hash
+        stats = CpuStatsV2.new
+        lines = call_if_file_exists(:read_lines, "cpu.stat", [])
+        stats.update(lines)
+        stats.to_hash
+      end
+    end
+
+    class CpuStatsV2
+      def initialize
+        @number_of_elapsed_periods = -1
+        @number_of_times_throttled = -1
+        @time_throttled_nanos = -1
+      end
+
+      def update(lines)
+        lines.each do |line|
+          fields = line.split(/\s+/)
+          next unless fields.size > 1
+          case fields.first
+          when "nr_periods" then @number_of_elapsed_periods = fields[1].to_i
+          when "nr_throttled" then @number_of_times_throttled = fields[1].to_i
+          when "throttled_usec" then @time_throttled_nanos = fields[1].to_i * 1000
+          end
+        end
+      end
+
+      def to_hash
+        {
+          :number_of_elapsed_periods => @number_of_elapsed_periods,
+          :number_of_times_throttled => @number_of_times_throttled,
+          :time_throttled_nanos => @time_throttled_nanos
+        }
+      end
+    end
+
     CGROUP_RESOURCES = CGroupResources.new
+    CGROUP_V2_RESOURCES = CGroupV2Resources.new
 
     class << self
       def get_all
-        unless CGROUP_RESOURCES.cgroup_available?
+        if CGROUP_RESOURCES.cgroup_available?
+          groups = CGROUP_RESOURCES.controller_groups
+        elsif CGROUP_V2_RESOURCES.cgroup_available?
+          groups = CGROUP_V2_RESOURCES.controller_groups
+        else
           logger.debug("One or more required cgroup files or directories not found: #{CRITICAL_PATHS.join(', ')}")
           return
         end
-
-        groups = CGROUP_RESOURCES.controller_groups
 
         if groups.empty?
           logger.debug("The main cgroup file did not have any controllers: #{CGROUP_FILE}")
           return
         end
 
-        cgroups_stats = {}
-        groups.each do |name, controller|
-          next unless controller.implemented?
-          cgroups_stats[name.to_sym] = controller.to_hash
-        end
-        cgroups_stats
+        build_stats_hash(groups)
       rescue => e
         logger.debug("Error, cannot retrieve cgroups information", :exception => e.class.name, :message => e.message, :backtrace => e.backtrace.take(4)) if logger.debug?
         nil
@@ -239,6 +363,17 @@ module LogStash module Instrument module PeriodicPoller
 
       def get
         get_all
+      end
+
+      private
+
+      def build_stats_hash(groups)
+        cgroups_stats = {}
+        groups.each do |name, controller|
+          next unless controller.implemented?
+          cgroups_stats[name.to_sym] = controller.to_hash
+        end
+        cgroups_stats
       end
     end
   end
