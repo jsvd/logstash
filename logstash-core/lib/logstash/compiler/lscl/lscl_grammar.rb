@@ -3617,5 +3617,4 @@ module LogStashCompilerLSCLGrammar
   end
 end
 
-(remove_const(:LogStashCompilerLSCLGrammarParser) if const_defined?(:LogStashCompilerLSCLGrammarParser)) rescue nil; LogStashCompilerLSCLGrammarParser = LogStashCompilerLSCLGrammar::Parser
-
+LogStashCompilerLSCLGrammarParser = LogStashCompilerLSCLGrammar::Parser
