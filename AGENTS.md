@@ -73,6 +73,14 @@ SPEC_OPTS="-fd -P logstash-core/spec/logstash/agent_spec.rb" \
 
 # All X-Pack Ruby tests
 ./gradlew :logstash-xpack:rubyTests
+
+# Single X-Pack Ruby test
+SPEC_OPTS="-fd -P spec/config_management/elasticsearch_source_spec.rb" \
+  ./gradlew :logstash-xpack:rubyTests --rerun-tasks
+
+# Single Ruby test for core or X-Pack (fast, direct JRuby)
+bin/rspec logstash-core/spec/logstash/some_spec.rb
+bin/rspec x-pack/spec/config_management/elasticsearch_source_spec.rb
 ```
 
 ## Quick Verification
