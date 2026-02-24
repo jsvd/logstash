@@ -25,7 +25,10 @@ Each suite has its own dependencies and execution workflow.
 # Single test
 ./gradlew runIntegrationTests -PrubyIntegrationSpecs=specs/dlq_spec.rb
 
-# Manual (from qa/integration/)
+# Manual: set up artifacts first, then run directly from qa/integration/
+./gradlew installIntegrationTestGems  # build Logstash tarball + install test gems
+./gradlew copyEs                      # download Elasticsearch (if spec needs it)
+./gradlew copyFilebeat                # download Filebeat (if spec needs it)
 bundle exec rspec specs/dlq_spec.rb
 ```
 
