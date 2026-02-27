@@ -273,7 +273,7 @@ describe LogStash::Plugin do
         LogStash::Inputs::Base
     ]
 
-    before(:each) { LogStash::PluginMetadata::reset! }
+    before(:each) { LogStash::PluginMetadata::reset }
 
     plugin_types.each do |plugin_type|
       let(:plugin) do

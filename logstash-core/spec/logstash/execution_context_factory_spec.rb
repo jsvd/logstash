@@ -17,8 +17,10 @@
 
 require "spec_helper"
 
-describe LogStash::Plugins::ExecutionContextFactory do
-  let(:pipeline) { double('Pipeline') }
+java_import org.logstash.plugins.factory.ExecutionContextFactory
+
+describe ExecutionContextFactory do
+  let(:pipeline) { double('Pipeline', pipeline_id: 'main') }
   let(:agent) { double('Agent') }
   let(:inner_dlq_writer) { nil }
 

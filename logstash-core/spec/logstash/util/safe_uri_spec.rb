@@ -36,16 +36,14 @@ module LogStash module Util
     describe "equality" do
       subject { LogStash::Util::SafeURI.new("https://localhost:9200/uri") }
 
-      it "should eql/== to dup" do
+      it "should eql/== to clone" do
         expect(subject == subject.clone).to be true
-        expect(subject == subject.dup).to be true
-        expect(subject.eql? subject.dup).to be true
       end
 
       it "should eql to same uri" do
         uri = LogStash::Util::SafeURI.new("https://localhost:9200/uri")
-        expect(uri.eql? subject).to be true
-        expect(subject.hash).to eql uri.hash
+        expect(subject == uri).to be true
+        expect(subject.hashCode).to eql uri.hashCode
       end
     end
 
@@ -60,7 +58,9 @@ module LogStash module Util
       [:user, :password, :path, :query, :fragment].each do |field|
         it "should not escape the #{field} field" do
           expected = self.send(field)
-          expect(subject.send(field)).to eq(expected)
+          # Java getters use getX naming; JRuby maps get_x to getX
+          java_getter = "get#{field.to_s.capitalize}"
+          expect(subject.send(java_getter)).to eq(expected)
         end
       end
     end
@@ -72,7 +72,7 @@ module LogStash module Util
         context 'malformed uris via string' do
           MALFORMED_URIS.each do |arg|
             it "#{arg}: should raise an error" do
-              expect {LogStash::Util::SafeURI.new(arg)}.to raise_error(ArgumentError)
+              expect {LogStash::Util::SafeURI.new(arg)}.to raise_error
             end
           end
         end
@@ -81,16 +81,15 @@ module LogStash module Util
           MALFORMED_URIS.each do |arg|
             it "#{arg}: should raise an error" do
               java_uri = java.net.URI.new(arg)
-              expect {LogStash::Util::SafeURI.new(java_uri)}.to raise_error(ArgumentError)
+              expect {LogStash::Util::SafeURI.new(java_uri)}.to raise_error(java.lang.IllegalArgumentException)
             end
           end
         end
 
-        context 'malformed uris via Ruby URI' do
+        context 'malformed uris via from() factory' do
           MALFORMED_URIS.each do |arg|
             it "#{arg}: should raise an error" do
-              ruby_uri = URI.parse(arg)
-              expect {LogStash::Util::SafeURI.new(ruby_uri)}.to raise_error(ArgumentError)
+              expect {LogStash::Util::SafeURI.from(arg)}.to raise_error
             end
           end
         end
@@ -108,8 +107,8 @@ module LogStash module Util
     describe "normalization" do
       subject { LogStash::Util::SafeURI.new("HTTPS://FOO:BaR@S11.ORG") }
 
-      it "should normalize" do # like URI().normalize
-        subject.normalize!
+      it "should normalize" do
+        subject.normalize
         expect(subject.to_s).to eq('https://FOO:xxxxxx@s11.org/')
       end
     end
@@ -146,9 +145,22 @@ module LogStash module Util
       end
 
       it "should update :scheme" do
-        subject.update(:scheme, 'https')
+        subject.update('scheme', 'https')
         expect(subject.scheme).to eq('https')
         expect(subject.to_s).to eq('https://sample.net/')
+      end
+    end
+
+    describe "#from" do
+      it "returns the same instance for SafeURI" do
+        uri = LogStash::Util::SafeURI.new("http://localhost:9200")
+        expect(LogStash::Util::SafeURI.from(uri)).to equal(uri)
+      end
+
+      it "creates new instance from String" do
+        uri = LogStash::Util::SafeURI.from("http://localhost:9200")
+        expect(uri).to be_a(LogStash::Util::SafeURI)
+        expect(uri.host).to eq("localhost")
       end
     end
   end

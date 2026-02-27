@@ -202,6 +202,19 @@ public class BaseSetting<T> implements Setting<T> {
     public Setting<T> nullable() {
         return new NullableSetting<>(this);
     }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) return true;
+        if (!(other instanceof BaseSetting)) return false;
+        BaseSetting<?> that = (BaseSetting<?>) other;
+        return Objects.equals(name, that.name) && Objects.equals(value(), that.value());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, value());
+    }
  }
 
 

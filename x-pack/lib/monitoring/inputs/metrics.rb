@@ -217,12 +217,12 @@ module LogStash module Inputs
 
       if cluster_uuids.any?
         @logger.info("Found cluster_uuids from elasticsearch output plugins", :cluster_uuids => cluster_uuids)
-        if LogStash::SETTINGS.set?("monitoring.cluster_uuid")
+        if LogStash::SETTINGS.is_set("monitoring.cluster_uuid")
           @logger.warn("Found monitoring.cluster_uuid setting configured in logstash.yml while using the ones discovered from elasticsearch output plugins, ignoring setting monitoring.cluster_uuid")
         end
         cluster_uuids
       else
-        if LogStash::SETTINGS.set?("monitoring.cluster_uuid")
+        if LogStash::SETTINGS.is_set("monitoring.cluster_uuid")
           [LogStash::SETTINGS.get("monitoring.cluster_uuid")]
         else
           @logger.warn("Can't find any cluster_uuid from elasticsearch output plugins nor monitoring.cluster_uuid in logstash.yml is defined")

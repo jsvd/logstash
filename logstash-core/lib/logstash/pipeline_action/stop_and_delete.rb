@@ -18,30 +18,32 @@
 require "logstash/pipeline_action/base"
 
 module LogStash module PipelineAction
+  java_import org.logstash.execution.ConvergeResult
+  java_import org.logstash.execution.StopAndDeletePipelineAction
+
   class StopAndDelete < Base
     attr_reader :pipeline_id
 
     def initialize(pipeline_id)
       @pipeline_id = pipeline_id
+      @java_action = Java::OrgLogstashExecution::StopAndDeletePipelineAction.new(pipeline_id.to_s)
     end
 
     def execute(agent, pipelines_registry)
       pipelines_registry.terminate_pipeline(pipeline_id) do |pipeline|
         pipeline.shutdown
       end
-
       success = pipelines_registry.delete_pipeline(@pipeline_id)
-      detach_health_indicator(agent) if success
-
-      LogStash::ConvergeResult::ActionResult.create(self, success)
+      agent.health_observer.detach_pipeline_indicator(pipeline_id) if success
+      ConvergeResult::ActionResult.from_result(self, success)
     end
 
-    def detach_health_indicator(agent)
-      agent.health_observer.detach_pipeline_indicator(pipeline_id)
+    def execution_priority
+      @java_action.getExecutionPriority
     end
 
     def to_s
-      "PipelineAction::StopAndDelete<#{pipeline_id}>"
+      @java_action.toString
     end
   end
 end end

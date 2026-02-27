@@ -16,11 +16,10 @@
 # under the License.
 
 require "spec_helper"
-require "logstash/util/substitution_variables"
 
-describe LogStash::Util::SubstitutionVariables do
+describe Java::OrgLogstashSettings::SubstitutionVariables do
 
-  subject { Class.new { extend LogStash::Util::SubstitutionVariables } }
+  subject { Java::OrgLogstashSettings::SubstitutionVariables }
 
   context "ENV or Keystore ${VAR} with single/double quotes" do
     # single or double quotes come from ENV/Keystore ${VAR} value

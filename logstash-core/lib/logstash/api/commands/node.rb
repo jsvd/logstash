@@ -108,7 +108,7 @@ module LogStash
         # @return [Hash{String=>Object}]
         def decorate_with_cluster_uuids(vertex)
           plugin_id = vertex["id"]&.to_s
-          return vertex unless plugin_id && LogStash::PluginMetadata.exists?(plugin_id)
+          return vertex unless plugin_id && LogStash::PluginMetadata.exists(plugin_id)
 
           plugin_metadata = LogStash::PluginMetadata.for_plugin(plugin_id)
           cluster_uuid = plugin_metadata&.get(:cluster_uuid)

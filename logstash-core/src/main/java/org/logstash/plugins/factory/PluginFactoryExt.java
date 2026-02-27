@@ -11,6 +11,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 import org.logstash.RubyUtil;
 import org.logstash.common.EnvironmentVariableProvider;
 import org.logstash.common.SourceWithMetadata;
+import org.logstash.exceptions.ConfigurationException;
 import org.logstash.config.ir.PipelineIR;
 import org.logstash.config.ir.compiler.*;
 import org.logstash.config.ir.graph.Vertex;
@@ -30,7 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * */
 @JRubyClass(name = "PluginFactory")
 public final class PluginFactoryExt extends RubyBasicObject
-    implements RubyIntegration.PluginFactory {
+    implements RubyIntegration.PluginFactory, PluginFactory {
 
     /**
      * Definition of plugin resolver, maps plugin type and name to the plugin's class.
@@ -48,7 +49,7 @@ public final class PluginFactoryExt extends RubyBasicObject
 
     private transient PipelineIR lir;
 
-    private ExecutionContextFactoryExt executionContextFactory;
+    private transient ExecutionContextFactory executionContextFactory;
 
     private PluginMetricsFactoryExt metrics;
 
@@ -92,19 +93,19 @@ public final class PluginFactoryExt extends RubyBasicObject
 
     public PluginFactoryExt init(final PipelineIR lir,
                                      final PluginMetricsFactoryExt metrics,
-                                     final ExecutionContextFactoryExt executionContextFactoryExt,
+                                     final ExecutionContextFactory executionContextFactory,
                                      final RubyClass filterClass) {
-        return this.init(lir, metrics, executionContextFactoryExt, filterClass, EnvironmentVariableProvider.defaultProvider());
+        return this.init(lir, metrics, executionContextFactory, filterClass, EnvironmentVariableProvider.defaultProvider());
     }
 
     PluginFactoryExt init(final PipelineIR lir,
                           final PluginMetricsFactoryExt metrics,
-                          final ExecutionContextFactoryExt executionContextFactoryExt,
+                          final ExecutionContextFactory executionContextFactory,
                           final RubyClass filterClass,
                           final EnvironmentVariableProvider envVars) {
         this.lir = lir;
         this.metrics = metrics;
-        this.executionContextFactory = executionContextFactoryExt;
+        this.executionContextFactory = executionContextFactory;
         this.filterDelegatorClass = filterClass;
         this.pluginCreatorsRegistry.put(PluginLookup.PluginType.INPUT, new InputPluginCreator(this));
         this.pluginCreatorsRegistry.put(PluginLookup.PluginType.CODEC, new CodecPluginCreator());
@@ -210,16 +211,14 @@ public final class PluginFactoryExt extends RubyBasicObject
         final String id = generateOrRetrievePluginId(type, source, args);
 
         if (id == null) {
-            throw context.runtime.newRaiseException(
-                    RubyUtil.CONFIGURATION_ERROR_CLASS,
+            throw new ConfigurationException(
                     String.format(
                             "Could not determine ID for %s/%s", type.rubyLabel().asJavaString(), name
                     )
             );
         }
         if (!pluginsById.add(id)) {
-            throw context.runtime.newRaiseException(
-                    RubyUtil.CONFIGURATION_ERROR_CLASS,
+            throw new ConfigurationException(
                     String.format("Two plugins have the id '%s', please fix this conflict", id)
             );
         }
@@ -240,11 +239,10 @@ public final class PluginFactoryExt extends RubyBasicObject
             if (type == PluginLookup.PluginType.OUTPUT) {
                 return new OutputDelegatorExt(context.runtime, RubyUtil.RUBY_OUTPUT_DELEGATOR_CLASS).initialize(
                         context,
-                        new IRubyObject[]{
-                                klass, typeScopedMetric, executionCntx,
-                                OutputStrategyExt.OutputStrategyRegistryExt.instance(context, null),
-                                rubyArgs
-                        }
+                        rubyArgs,
+                        klass,
+                        typeScopedMetric,
+                        executionCntx
                 );
             } else if (type == PluginLookup.PluginType.FILTER) {
                 return filterDelegator(
@@ -358,7 +356,87 @@ public final class PluginFactoryExt extends RubyBasicObject
                 .map(Vertex::getId);
     }
 
-    ExecutionContextFactoryExt getExecutionContextFactory() {
+    ExecutionContextFactory getExecutionContextFactory() {
         return executionContextFactory;
+    }
+
+    // ---- PluginFactory (pure Java) interface implementation ----
+
+    @Override
+    public Input buildJavaInput(final String name, final String id,
+                                final Map<String, Object> args, final SourceWithMetadata source) {
+        return buildJavaPlugin(PluginLookup.PluginType.INPUT, name, id, args, source, Input.class);
+    }
+
+    @Override
+    public Output buildJavaOutput(final String name, final String id,
+                                  final Map<String, Object> args, final SourceWithMetadata source) {
+        return buildJavaPlugin(PluginLookup.PluginType.OUTPUT, name, id, args, source, Output.class);
+    }
+
+    @Override
+    public Filter buildJavaFilter(final String name, final String id,
+                                  final Map<String, Object> args, final SourceWithMetadata source) {
+        return buildJavaPlugin(PluginLookup.PluginType.FILTER, name, id, args, source, Filter.class);
+    }
+
+    @Override
+    public Codec buildJavaCodec(final String name, final String id,
+                                final Map<String, Object> args, final SourceWithMetadata source) {
+        return buildJavaPlugin(PluginLookup.PluginType.CODEC, name, id, args, source, Codec.class);
+    }
+
+    /**
+     * Returns this instance as a pure Java {@link PluginFactory}.
+     * Since PluginFactoryExt implements PluginFactory directly, this simply returns {@code this}.
+     *
+     * @return this instance
+     */
+    public PluginFactory asPluginFactory() {
+        return this;
+    }
+
+    /**
+     * Creates a raw Java plugin instance without JRuby delegator wrapping.
+     * This method resolves the plugin class, validates it is a Java plugin,
+     * and instantiates it using the plugin creator infrastructure.
+     *
+     * @param type        the plugin type
+     * @param name        the plugin name
+     * @param id          the unique plugin id
+     * @param args        configuration arguments
+     * @param source      source metadata, may be {@code null}
+     * @param pluginClass the expected Java plugin interface class
+     * @param <T>         the plugin type
+     * @return the raw Java plugin instance
+     * @throws IllegalArgumentException if the resolved plugin is not a Java plugin
+     * @throws IllegalStateException    if no plugin creator is registered for the type
+     */
+    @SuppressWarnings("unchecked")
+    private <T extends Plugin> T buildJavaPlugin(final PluginLookup.PluginType type,
+                                                  final String name,
+                                                  final String id,
+                                                  final Map<String, Object> args,
+                                                  final SourceWithMetadata source,
+                                                  final Class<T> pluginClass) {
+        final PluginLookup.PluginClass resolvedClass = pluginResolver.resolve(type, name);
+        if (resolvedClass.language() != PluginLookup.PluginLanguage.JAVA) {
+            throw new IllegalArgumentException(
+                    String.format("Plugin %s/%s is not a Java plugin. Use the Ruby-aware build methods instead.", type, name)
+            );
+        }
+
+        final AbstractPluginCreator<? extends Plugin> pluginCreator = pluginCreatorsRegistry.get(type);
+        if (pluginCreator == null) {
+            throw new IllegalStateException("Unable to create plugin: " + resolvedClass.toReadableString());
+        }
+
+        final Map<String, Object> pluginArgs = new HashMap<>(args);
+        pluginArgs.put("id", id);
+
+        final ThreadContext context = RubyUtil.RUBY.getCurrentContext();
+        final Context contextWithMetrics = executionContextFactory.toContext(type, metrics.getRoot(context));
+
+        return (T) pluginCreator.createInstance(pluginArgs, id, contextWithMetrics, resolvedClass);
     }
 }

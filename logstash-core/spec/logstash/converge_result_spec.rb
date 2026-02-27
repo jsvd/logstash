@@ -18,7 +18,9 @@
 require "logstash/pipeline_action/stop"
 require "spec_helper"
 
-describe LogStash::ConvergeResult do
+java_import org.logstash.execution.ConvergeResult
+
+describe ConvergeResult do
   let(:expected_actions_count) { 2 }
   let(:action) { LogStash::PipelineAction::Stop.new(:main) }
 
@@ -26,8 +28,8 @@ describe LogStash::ConvergeResult do
 
   context "When the action was executed" do
     it "returns the time of execution" do
-      expect(LogStash::ConvergeResult::FailedAction.new("testing").executed_at.class).to eq(LogStash::Timestamp)
-      expect(LogStash::ConvergeResult::SuccessfulAction.new.executed_at.class).to eq(LogStash::Timestamp)
+      expect(ConvergeResult::FailedAction.new("testing", nil).executed_at).to be_a(org.logstash.Timestamp)
+      expect(ConvergeResult::SuccessfulAction.new.executed_at).to be_a(org.logstash.Timestamp)
     end
   end
 
@@ -53,7 +55,7 @@ describe LogStash::ConvergeResult do
 
     context "`ActionResult` classes" do
       context "SuccessfulAction" do
-        let(:result) { LogStash::ConvergeResult::SuccessfulAction.new }
+        let(:result) { ConvergeResult::SuccessfulAction.new }
 
         it "doesn't convert the class" do
           subject.add(action, result)
@@ -63,7 +65,7 @@ describe LogStash::ConvergeResult do
       end
 
       context "FailedAction" do
-        let(:result) { LogStash::ConvergeResult::FailedAction.new("could be worse") }
+        let(:result) { ConvergeResult::FailedAction.new("could be worse", nil) }
 
         it "doesn't convert the class" do
           subject.add(action, result)
@@ -78,7 +80,7 @@ describe LogStash::ConvergeResult do
         begin
           raise ArgumentError, "hello world"
         rescue => e
-          subject.add(action, e)
+          subject.add(action, ConvergeResult::FailedAction.new(e.message, e.backtrace&.to_a&.join("\n")))
 
           expect(subject.failed_actions.keys).to include(action)
           failed_action = subject.failed_actions.values.pop

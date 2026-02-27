@@ -18,6 +18,8 @@
 require "logstash/pipeline_action/base"
 
 module LogStash module PipelineAction
+  java_import org.logstash.execution.ConvergeResult
+
   class Stop < Base
     attr_reader :pipeline_id
 
@@ -30,7 +32,7 @@ module LogStash module PipelineAction
         pipeline.shutdown
       end
 
-      LogStash::ConvergeResult::SuccessfulAction.new
+      ConvergeResult::SuccessfulAction.new
     end
 
     def to_s

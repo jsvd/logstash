@@ -47,4 +47,12 @@ public interface Setting<T> extends Cloneable {
     T getDefault();
 
     void format(List<String> output);
+
+    /**
+     * Called during post-processing phase to observe and react to settings state.
+     * Overridden in DeprecatedAlias to emit deprecation warnings.
+     */
+    default void observePostProcess() {
+        // no-op by default
+    }
 }

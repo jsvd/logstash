@@ -32,6 +32,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 
 /**
  * JRuby extension that provides a class to keep track of listener and dispatch events to those.
+ * Acts as a thin adapter over the pure Java {@link EventDispatcher} for Ruby compatibility.
  * */
 @JRubyClass(name = "EventDispatcher")
 public final class EventDispatcherExt extends RubyBasicObject {
@@ -42,6 +43,8 @@ public final class EventDispatcherExt extends RubyBasicObject {
 
     private transient IRubyObject emitter;
 
+    private transient EventDispatcher delegate;
+
     public EventDispatcherExt(final Ruby runtime, final RubyClass metaClass) {
         super(runtime, metaClass);
     }
@@ -49,12 +52,22 @@ public final class EventDispatcherExt extends RubyBasicObject {
     @JRubyMethod
     public EventDispatcherExt initialize(final ThreadContext context, final IRubyObject emitter) {
         this.emitter = emitter;
+        this.delegate = new EventDispatcher(emitter);
         return this;
     }
 
     @JRubyMethod
     public IRubyObject emitter() {
         return emitter;
+    }
+
+    /**
+     * Returns the pure Java delegate for use by Java callers.
+     *
+     * @return the underlying {@link EventDispatcher}
+     */
+    public EventDispatcher getDelegate() {
+        return delegate;
     }
 
     /**

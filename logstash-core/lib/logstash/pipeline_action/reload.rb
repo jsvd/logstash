@@ -20,6 +20,8 @@ require "logstash/pipeline_action/create"
 require "logstash/pipeline_action/stop"
 
 module LogStash module PipelineAction
+  java_import org.logstash.execution.ConvergeResult
+
   class Reload < Base
     include LogStash::Util::Loggable
 
@@ -40,21 +42,21 @@ module LogStash module PipelineAction
       old_pipeline = pipelines_registry.get_pipeline(pipeline_id)
 
       if old_pipeline.nil?
-        return LogStash::ConvergeResult::FailedAction.new("Cannot reload pipeline, because the pipeline does not exist")
+        return ConvergeResult::FailedAction.new("Cannot reload pipeline, because the pipeline does not exist", nil)
       end
 
       if !old_pipeline.reloadable?
-        return LogStash::ConvergeResult::FailedAction.new("Cannot reload pipeline, because the existing pipeline is not reloadable")
+        return ConvergeResult::FailedAction.new("Cannot reload pipeline, because the existing pipeline is not reloadable", nil)
       end
 
       begin
         pipeline_validator = LogStash::AbstractPipeline.new(@pipeline_config, nil, logger, nil)
       rescue => e
-        return LogStash::ConvergeResult::FailedAction.from_exception(e)
+        return ConvergeResult::FailedAction.new(e.message, e.backtrace&.to_a&.join("\n"))
       end
 
       if !pipeline_validator.reloadable?
-        return LogStash::ConvergeResult::FailedAction.new("Cannot reload pipeline, because the new pipeline is not reloadable")
+        return ConvergeResult::FailedAction.new("Cannot reload pipeline, because the new pipeline is not reloadable", nil)
       end
 
       logger.info("Reloading pipeline", "pipeline.id" => pipeline_id)
@@ -74,7 +76,7 @@ module LogStash module PipelineAction
         [success, new_pipeline]
       end
 
-      LogStash::ConvergeResult::ActionResult.create(self, success)
+      ConvergeResult::ActionResult.from_result(self, success)
     end
 
   end

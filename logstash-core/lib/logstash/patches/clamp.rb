@@ -69,7 +69,7 @@ module Clamp
           define_method(option.append_method) do |kv_pair|
             key, value = kv_pair.split(/[:=]/, 2)
             signal_usage_error("failed to parse setting `#{kv_pair}`") unless key && value
-            signal_usage_error("failed to apply setting `#{kv_pair}`: unknown setting `#{key}`") unless LogStash::SETTINGS.registered?(key)
+            signal_usage_error("failed to apply setting `#{kv_pair}`: unknown setting `#{key}`") unless LogStash::SETTINGS.registered(key)
             if value.empty?
               LogStash::SETTINGS.get_setting(key).reset rescue signal_usage_error("failed to reset setting `#{kv_pair}`: #{$!.message}")
             else

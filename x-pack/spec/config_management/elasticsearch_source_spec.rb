@@ -557,7 +557,7 @@ describe LogStash::ConfigManagement::ElasticsearchSource do
                   pipeline.output.workers
                   nonsensical.invalid.setting
                 ).each do |invalid_setting|
-                  expect(pipeline_settings.registered?(invalid_setting)).to be false
+                  expect(pipeline_settings.registered(invalid_setting)).to be false
                   expect(logger_stub).to have_received(:warn).with(/Ignoring .+ '#{Regexp.quote(invalid_setting)}'/)
                 end
               end

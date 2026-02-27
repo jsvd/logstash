@@ -21,6 +21,15 @@ abstract class AbstractPluginCreator<T extends Plugin> {
                                 AbstractNamespacedMetricExt typeScopedMetric,
                                 PluginLookup.PluginClass pluginClass, Context pluginContext);
 
+    /**
+     * Creates a raw Java plugin instance without wrapping it in a JRuby delegator.
+     * This is the pure Java entry point for plugin creation.
+     */
+    T createInstance(Map<String, Object> pluginArgs, String id, Context pluginContext,
+                     PluginLookup.PluginClass pluginClass) {
+        return instantiateAndValidate(pluginArgs, id, pluginContext, pluginClass);
+    }
+
     protected T instantiateAndValidate(Map<String, Object> pluginArgs, String id, Context pluginContext,
                                        PluginLookup.PluginClass pluginClass) {
         @SuppressWarnings("unchecked")

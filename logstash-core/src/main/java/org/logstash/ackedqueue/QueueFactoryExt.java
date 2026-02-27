@@ -38,6 +38,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 import org.logstash.Event;
 import org.logstash.RubyUtil;
 import org.logstash.ackedqueue.ext.JRubyWrappedAckedQueueExt;
+import org.logstash.exceptions.ConfigurationException;
 import org.logstash.common.SettingKeyDefinitions;
 import org.logstash.execution.AbstractWrappedQueueExt;
 import org.logstash.ext.JrubyWrappedSynchronousQueueExt;
@@ -114,8 +115,7 @@ public final class QueueFactoryExt extends RubyBasicObject {
             int queueSize = batchSize * workers;
             return JrubyWrappedSynchronousQueueExt.create(context, queueSize, batchMetricMode);
         } else {
-            throw context.runtime.newRaiseException(
-                    RubyUtil.CONFIGURATION_ERROR_CLASS,
+            throw new ConfigurationException(
                     String.format(
                             "Invalid setting `%s` for `queue.type`, supported types are: 'memory' or 'persisted'",
                             type

@@ -5,7 +5,9 @@
 require "spec_helper"
 require "logstash/environment"
 
-describe ::LogStash::Config::LIRSerializer do
+java_import org.logstash.config.ir.LIRSerializer
+
+describe LIRSerializer do
   let(:config) do
     <<-EOC
       input { fake_input {} }

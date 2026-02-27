@@ -42,13 +42,11 @@ import org.logstash.config.ir.compiler.JavaFilterDelegatorExt;
 import org.logstash.config.ir.compiler.JavaInputDelegatorExt;
 import org.logstash.config.ir.compiler.JavaOutputDelegatorExt;
 import org.logstash.config.ir.compiler.OutputDelegatorExt;
-import org.logstash.config.ir.compiler.OutputStrategyExt;
 import org.logstash.execution.AbstractPipelineExt;
 import org.logstash.execution.AbstractWrappedQueueExt;
-import org.logstash.execution.ConvergeResultExt;
+
 import org.logstash.execution.EventDispatcherExt;
 import org.logstash.execution.ExecutionContextExt;
-import org.logstash.execution.PipelineReporterExt;
 import org.logstash.execution.QueueReadClientBase;
 import org.logstash.execution.ShutdownWatcherExt;
 import org.logstash.ext.JRubyAbstractQueueWriteClientExt;
@@ -68,7 +66,6 @@ import org.logstash.instrument.metrics.MetricExt;
 import org.logstash.instrument.metrics.NamespacedMetricExt;
 import org.logstash.instrument.metrics.NullMetricExt;
 import org.logstash.instrument.metrics.NullNamespacedMetricExt;
-import org.logstash.instrument.metrics.SnapshotExt;
 import org.logstash.log.DeprecationLoggerExt;
 import org.logstash.log.LoggableExt;
 import org.logstash.log.LoggerExt;
@@ -77,7 +74,6 @@ import org.logstash.plugins.HooksRegistryExt;
 import org.logstash.plugins.UniversalPluginExt;
 import org.logstash.plugins.factory.ContextualizerExt;
 import org.logstash.util.UtilExt;
-import org.logstash.plugins.factory.ExecutionContextFactoryExt;
 import org.logstash.plugins.factory.PluginMetricsFactoryExt;
 import org.logstash.plugins.factory.PluginFactoryExt;
 
@@ -141,18 +137,6 @@ public final class RubyUtil {
 
     public static final RubyClass FILTER_DELEGATOR_CLASS;
 
-    public static final RubyClass OUTPUT_STRATEGY_REGISTRY;
-
-    public static final RubyClass OUTPUT_STRATEGY_ABSTRACT;
-
-    public static final RubyClass OUTPUT_STRATEGY_SIMPLE_ABSTRACT;
-
-    public static final RubyClass OUTPUT_STRATEGY_LEGACY;
-
-    public static final RubyClass OUTPUT_STRATEGY_SINGLE;
-
-    public static final RubyClass OUTPUT_STRATEGY_SHARED;
-
     public static final RubyClass BUFFERED_TOKENIZER;
 
     public static final RubyClass ABSTRACT_METRIC_CLASS;
@@ -179,8 +163,6 @@ public final class RubyUtil {
 
     public static final RubyClass METRIC_NO_NAMESPACE_PROVIDED_CLASS;
 
-    public static final RubyClass METRIC_SNAPSHOT_CLASS;
-
     public static final RubyClass TIMED_EXECUTION_CLASS;
 
     public static final RubyClass NULL_TIMED_EXECUTION_CLASS;
@@ -194,8 +176,6 @@ public final class RubyUtil {
     public static final RubyClass EXECUTION_CONTEXT_CLASS;
 
     public static final RubyClass BUG_CLASS;
-
-    public static final RubyClass EXECUTION_CONTEXT_FACTORY_CLASS;
 
     public static final RubyClass PLUGIN_METRICS_FACTORY_CLASS;
 
@@ -219,19 +199,7 @@ public final class RubyUtil {
 
     public static final RubyClass EVENT_DISPATCHER_CLASS;
 
-    public static final RubyClass PIPELINE_REPORTER_CLASS;
-
     public static final RubyClass SHUTDOWN_WATCHER_CLASS;
-
-    public static final RubyClass CONVERGE_RESULT_CLASS;
-
-    public static final RubyClass ACTION_RESULT_CLASS;
-
-    public static final RubyClass FAILED_ACTION_CLASS;
-
-    public static final RubyClass SUCCESSFUL_ACTION_CLASS;
-
-    public static final RubyClass PIPELINE_REPORTER_SNAPSHOT_CLASS;
 
     public static final RubyClass QUEUE_FACTORY_CLASS;
 
@@ -239,12 +207,12 @@ public final class RubyUtil {
 
     public static final RubyClass ABSTRACT_PIPELINE_CLASS;
 
+    public static final RubyClass REPORTER_SNAPSHOT_CLASS;
+
     /**
      * Logstash Ruby Module.
      */
     private static final RubyModule LOGSTASH_MODULE;
-
-    private static final RubyModule OUTPUT_DELEGATOR_STRATEGIES;
 
     private static final RubyModule PLUGINS_MODULE;
 
@@ -258,22 +226,12 @@ public final class RubyUtil {
         PLUGINS_MODULE = RUBY.defineModuleUnder("Plugins", LOGSTASH_MODULE);
         final RubyModule instrumentModule =
             RUBY.defineModuleUnder("Instrument", LOGSTASH_MODULE);
-        METRIC_SNAPSHOT_CLASS =
-            instrumentModule.defineClassUnder("Snapshot", RUBY.getObject(), SnapshotExt::new);
-        METRIC_SNAPSHOT_CLASS.defineAnnotatedMethods(SnapshotExt.class);
-        EXECUTION_CONTEXT_FACTORY_CLASS = PLUGINS_MODULE.defineClassUnder(
-            "ExecutionContextFactory", RUBY.getObject(),
-            ExecutionContextFactoryExt::new
-        );
         PLUGIN_METRICS_FACTORY_CLASS = PLUGINS_MODULE.defineClassUnder(
             "PluginMetricsFactory", RUBY.getObject(), PluginMetricsFactoryExt::new
         );
         SHUTDOWN_WATCHER_CLASS =
             setupLogstashClass(ShutdownWatcherExt::new, ShutdownWatcherExt.class);
         PLUGIN_METRICS_FACTORY_CLASS.defineAnnotatedMethods(PluginMetricsFactoryExt.class);
-        EXECUTION_CONTEXT_FACTORY_CLASS.defineAnnotatedMethods(
-            ExecutionContextFactoryExt.class
-        );
         METRIC_EXCEPTION_CLASS = instrumentModule.defineClassUnder(
             "MetricException", RUBY.getException(), MetricExt.MetricException::new
         );
@@ -353,53 +311,10 @@ public final class RubyUtil {
         PLUGIN_DLQ_WRITER_CLASS.defineAnnotatedMethods(
             AbstractDeadLetterQueueWriterExt.PluginDeadLetterQueueWriterExt.class
         );
-        OUTPUT_STRATEGY_REGISTRY = setupLogstashClass(
-            OutputStrategyExt.OutputStrategyRegistryExt::new,
-            OutputStrategyExt.OutputStrategyRegistryExt.class
-        );
         BUFFERED_TOKENIZER = RUBY.getOrCreateModule("FileWatch").defineClassUnder(
             "BufferedTokenizer", RUBY.getObject(), BufferedTokenizerExt::new
         );
         BUFFERED_TOKENIZER.defineAnnotatedMethods(BufferedTokenizerExt.class);
-        OUTPUT_DELEGATOR_STRATEGIES =
-            RUBY.defineModuleUnder("OutputDelegatorStrategies", LOGSTASH_MODULE);
-        OUTPUT_STRATEGY_ABSTRACT = OUTPUT_DELEGATOR_STRATEGIES.defineClassUnder(
-            "AbstractStrategy", RUBY.getObject(), ObjectAllocator.NOT_ALLOCATABLE_ALLOCATOR
-        );
-        OUTPUT_STRATEGY_SIMPLE_ABSTRACT = OUTPUT_DELEGATOR_STRATEGIES.defineClassUnder(
-            "SimpleAbstractStrategy", OUTPUT_STRATEGY_ABSTRACT,
-            ObjectAllocator.NOT_ALLOCATABLE_ALLOCATOR
-        );
-        OUTPUT_STRATEGY_LEGACY = OUTPUT_DELEGATOR_STRATEGIES.defineClassUnder(
-            "Legacy", OUTPUT_STRATEGY_ABSTRACT,
-            OutputStrategyExt.LegacyOutputStrategyExt::new
-        );
-        OUTPUT_STRATEGY_SINGLE = OUTPUT_DELEGATOR_STRATEGIES.defineClassUnder(
-            "Single", OUTPUT_STRATEGY_SIMPLE_ABSTRACT,
-            OutputStrategyExt.SingleOutputStrategyExt::new
-        );
-        OUTPUT_STRATEGY_SHARED = OUTPUT_DELEGATOR_STRATEGIES.defineClassUnder(
-            "Shared", OUTPUT_STRATEGY_SIMPLE_ABSTRACT,
-            OutputStrategyExt.SharedOutputStrategyExt::new
-        );
-        OUTPUT_STRATEGY_ABSTRACT.defineAnnotatedMethods(OutputStrategyExt.AbstractOutputStrategyExt.class);
-        OUTPUT_STRATEGY_ABSTRACT.defineAnnotatedMethods(OutputStrategyExt.SimpleAbstractOutputStrategyExt.class);
-        OUTPUT_STRATEGY_SHARED.defineAnnotatedMethods(OutputStrategyExt.SharedOutputStrategyExt.class);
-        OUTPUT_STRATEGY_SINGLE.defineAnnotatedMethods(OutputStrategyExt.SingleOutputStrategyExt.class);
-        OUTPUT_STRATEGY_LEGACY.defineAnnotatedMethods(OutputStrategyExt.LegacyOutputStrategyExt.class);
-        final OutputStrategyExt.OutputStrategyRegistryExt outputStrategyRegistry =
-            OutputStrategyExt.OutputStrategyRegistryExt.instance(
-                RUBY.getCurrentContext(), OUTPUT_DELEGATOR_STRATEGIES
-            );
-        outputStrategyRegistry.register(
-            RUBY.getCurrentContext(), RUBY.newSymbol("shared"), OUTPUT_STRATEGY_SHARED
-        );
-        outputStrategyRegistry.register(
-            RUBY.getCurrentContext(), RUBY.newSymbol("legacy"), OUTPUT_STRATEGY_LEGACY
-        );
-        outputStrategyRegistry.register(
-            RUBY.getCurrentContext(), RUBY.newSymbol("single"), OUTPUT_STRATEGY_SINGLE
-        );
         EXECUTION_CONTEXT_CLASS = setupLogstashClass(
             ExecutionContextExt::new, ExecutionContextExt.class
         );
@@ -486,6 +401,11 @@ public final class RubyUtil {
         LOGGABLE_MODULE.defineAnnotatedMethods(LoggableExt.class);
         ABSTRACT_PIPELINE_CLASS =
             setupLogstashClass(AbstractPipelineExt::new, AbstractPipelineExt.class);
+        REPORTER_SNAPSHOT_CLASS = ABSTRACT_PIPELINE_CLASS.defineClassUnder(
+            "ReporterSnapshot", RUBY.getObject(),
+            AbstractPipelineExt.ReporterSnapshot::new
+        );
+        REPORTER_SNAPSHOT_CLASS.defineAnnotatedMethods(AbstractPipelineExt.ReporterSnapshot.class);
         final RubyModule json = LOGSTASH_MODULE.defineOrGetModuleUnder("Json");
         final RubyClass stdErr = RUBY.getStandardError();
         LOGSTASH_ERROR = LOGSTASH_MODULE.defineClassUnder(
@@ -557,28 +477,6 @@ public final class RubyUtil {
             setupLogstashClass(UniversalPluginExt::new, UniversalPluginExt.class);
         EVENT_DISPATCHER_CLASS =
             setupLogstashClass(EventDispatcherExt::new, EventDispatcherExt.class);
-        PIPELINE_REPORTER_CLASS =
-            setupLogstashClass(PipelineReporterExt::new, PipelineReporterExt.class);
-        PIPELINE_REPORTER_CLASS.defineAnnotatedMethods(PipelineReporterExt.class);
-        PIPELINE_REPORTER_SNAPSHOT_CLASS = PIPELINE_REPORTER_CLASS.defineClassUnder(
-            "Snapshot", RUBY.getObject(), PipelineReporterExt.SnapshotExt::new
-        );
-        PIPELINE_REPORTER_SNAPSHOT_CLASS.defineAnnotatedMethods(
-            PipelineReporterExt.SnapshotExt.class
-        );
-        CONVERGE_RESULT_CLASS = setupLogstashClass(ConvergeResultExt::new, ConvergeResultExt.class);
-        ACTION_RESULT_CLASS = CONVERGE_RESULT_CLASS.defineClassUnder(
-            "ActionResult", RUBY.getObject(), ObjectAllocator.NOT_ALLOCATABLE_ALLOCATOR
-        );
-        ACTION_RESULT_CLASS.defineAnnotatedMethods(ConvergeResultExt.ActionResultExt.class);
-        SUCCESSFUL_ACTION_CLASS = CONVERGE_RESULT_CLASS.defineClassUnder(
-            "SuccessfulAction", ACTION_RESULT_CLASS, ConvergeResultExt.SuccessfulActionExt::new
-        );
-        SUCCESSFUL_ACTION_CLASS.defineAnnotatedMethods(ConvergeResultExt.SuccessfulActionExt.class);
-        FAILED_ACTION_CLASS = CONVERGE_RESULT_CLASS.defineClassUnder(
-            "FailedAction", ACTION_RESULT_CLASS, ConvergeResultExt.FailedActionExt::new
-        );
-        FAILED_ACTION_CLASS.defineAnnotatedMethods(ConvergeResultExt.FailedActionExt.class);
         HOOKS_REGISTRY_CLASS =
             PLUGINS_MODULE.defineClassUnder("HooksRegistry", RUBY.getObject(), HooksRegistryExt::new);
         HOOKS_REGISTRY_CLASS.defineAnnotatedMethods(HooksRegistryExt.class);

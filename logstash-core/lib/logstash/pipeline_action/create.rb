@@ -19,6 +19,8 @@ require "logstash/pipeline_action/base"
 require "logstash/java_pipeline"
 
 module LogStash module PipelineAction
+  java_import org.logstash.execution.ConvergeResult
+
   class Create < Base
     include LogStash::Util::Loggable
 
@@ -52,7 +54,7 @@ module LogStash module PipelineAction
         new_pipeline.start # block until the pipeline is correctly started or crashed
       end
 
-      LogStash::ConvergeResult::ActionResult.create(self, success)
+      ConvergeResult::ActionResult.from_result(self, success)
     end
 
     def attach_health_indicator(agent)

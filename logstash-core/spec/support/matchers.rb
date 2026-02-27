@@ -145,15 +145,17 @@ end
 
 RSpec::Matchers.define :be_a_successful_action do
   match do |pipeline_action|
-    case pipeline_action
-    when LogStash::ConvergeResult::ActionResult
+    if pipeline_action.respond_to?(:successful?)
       return pipeline_action.successful?
+    end
+
+    case pipeline_action
     when TrueClass
       return true
     when FalseClass
       return false
     else
-      raise "Incompatible class type of: #{pipeline_action.class}, Expected `Boolean` or `LogStash::ConvergeResult::ActionResult`"
+      raise "Incompatible class type of: #{pipeline_action.class}, Expected `Boolean` or an ActionResult with `successful?`"
     end
   end
 end

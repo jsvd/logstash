@@ -20,7 +20,6 @@
 
 package org.logstash.common;
 
-import java.io.IOException;
 import org.jruby.Ruby;
 import org.jruby.RubyBoolean;
 import org.jruby.RubyClass;
@@ -151,6 +150,8 @@ public abstract class AbstractDeadLetterQueueWriterExt extends RubyObject {
 
         private String pluginTypeString;
 
+        private transient DlqWriter delegate;
+
         public PluginDeadLetterQueueWriterExt(final Ruby runtime, final RubyClass metaClass) {
             super(runtime, metaClass);
         }
@@ -173,7 +174,19 @@ public abstract class AbstractDeadLetterQueueWriterExt extends RubyObject {
             if (!pluginType.isNil()) {
                 pluginTypeString = pluginType.asJavaString();
             }
+            if (this.innerWriter != null) {
+                this.delegate = new PluginDlqWriter(this.innerWriter, pluginIdString, pluginTypeString);
+            }
             return this;
+        }
+
+        /**
+         * Returns the pure Java {@link DlqWriter} delegate for use by Java callers.
+         * When the inner writer is a {@link DeadLetterQueueWriter}, returns a {@link PluginDlqWriter};
+         * otherwise returns {@link NullDlqWriter#INSTANCE}.
+         */
+        public DlqWriter asDlqWriter() {
+            return delegate != null ? delegate : NullDlqWriter.INSTANCE;
         }
 
         @Override
@@ -194,34 +207,26 @@ public abstract class AbstractDeadLetterQueueWriterExt extends RubyObject {
         @Override
         protected IRubyObject doWrite(final ThreadContext context, final IRubyObject event,
             final IRubyObject reason) {
-            if (hasOpenWriter()) {
-                try {
-                    innerWriter.writeEntry(
-                        ((JrubyEventExtLibrary.RubyEvent) event).getEvent(),
-                            pluginTypeString, pluginIdString, reason.asJavaString()
-                    );
-                } catch (final IOException ex) {
-                    throw new IllegalStateException(ex);
-                }
+            if (delegate != null) {
+                delegate.write(
+                    ((JrubyEventExtLibrary.RubyEvent) event).getEvent(),
+                    reason.asJavaString()
+                );
             }
             return context.nil;
         }
 
         @Override
         protected IRubyObject doClose(final ThreadContext context) {
-            if (hasOpenWriter()) {
-                innerWriter.close();
+            if (delegate != null) {
+                delegate.close();
             }
             return context.nil;
         }
 
         @Override
         protected RubyBoolean open(final ThreadContext context) {
-            return context.runtime.newBoolean(hasOpenWriter());
-        }
-
-        private boolean hasOpenWriter() {
-            return innerWriter != null && innerWriter.isOpen();
+            return context.runtime.newBoolean(delegate != null && delegate.isOpen());
         }
     }
 }

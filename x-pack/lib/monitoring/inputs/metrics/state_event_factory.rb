@@ -4,7 +4,7 @@
 
 module LogStash; module Inputs; class Metrics;
   class StateEventFactory
-    require "logstash/config/lir_serializer"
+    java_import org.logstash.config.ir.LIRSerializer
 
     def initialize(pipeline, cluster_uuid, collection_interval = 10)
       raise ArgumentError, "No pipeline passed in!" unless pipeline.is_a?(LogStash::JavaPipeline)
@@ -43,7 +43,7 @@ module LogStash; module Inputs; class Metrics;
         "ephemeral_id" => pipeline.ephemeral_id,
         "workers" =>  pipeline.settings.get("pipeline.workers"),
         "batch_size" =>  pipeline.settings.get("pipeline.batch.size"),
-        "representation" => ::LogStash::Config::LIRSerializer.serialize(pipeline.lir)
+        "representation" => LIRSerializer.serialize(pipeline.lir)
       }
     end
 

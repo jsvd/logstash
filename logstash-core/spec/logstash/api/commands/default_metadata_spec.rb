@@ -21,7 +21,7 @@ describe LogStash::Api::Commands::DefaultMetadata do
   include_context "api setup"
 
   def registerIfNot(setting)
-    LogStash::SETTINGS.register(setting) unless LogStash::SETTINGS.registered?(setting.name)
+    LogStash::SETTINGS.register(setting) unless LogStash::SETTINGS.registered(setting.name)
   end
 
   let(:report_method) { :all }

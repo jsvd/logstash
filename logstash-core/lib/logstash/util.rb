@@ -226,6 +226,8 @@ module LogStash::Util
       o.clone #need to keep internal state e.g. frozen
     when LogStash::Timestamp
       o.clone
+    when LogStash::Util::SafeURI
+      o.clone
     else
       Marshal.load(Marshal.dump(o))
     end

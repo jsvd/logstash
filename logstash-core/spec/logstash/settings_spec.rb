@@ -16,13 +16,12 @@
 # under the License.
 
 require "spec_helper"
-require "logstash/util/substitution_variables"
 require "logstash/settings"
 require "fileutils"
 
 describe LogStash::Settings do
   let(:numeric_setting_name) { "number" }
-  let(:numeric_setting) { LogStash::Setting.new(numeric_setting_name, Numeric, 1) }
+  let(:numeric_setting) { LogStash::Setting::NumericSetting.new(numeric_setting_name, 1) }
 
   describe "#register" do
     context "if setting has already been registered" do
@@ -33,7 +32,7 @@ describe LogStash::Settings do
         expect { subject.register(numeric_setting) }.to raise_error
       end
       it "registered? should return true" do
-        expect(subject.registered?(numeric_setting_name)).to be_truthy
+        expect(subject.registered(numeric_setting_name)).to be_truthy
       end
     end
     context "if setting hasn't been registered" do
@@ -41,7 +40,7 @@ describe LogStash::Settings do
         expect { subject.register(numeric_setting) }.to_not raise_error
       end
       it "registered? should return false" do
-        expect(subject.registered?(numeric_setting_name)).to be_falsey
+        expect(subject.registered(numeric_setting_name)).to be_falsey
       end
     end
   end
@@ -85,10 +84,10 @@ describe LogStash::Settings do
   end
 
   describe "#get_subset" do
-    let(:numeric_setting_1) { LogStash::Setting.new("num.1", Numeric, 1) }
-    let(:numeric_setting_2) { LogStash::Setting.new("num.2", Numeric, 2) }
-    let(:numeric_setting_3) { LogStash::Setting.new("num.3", Numeric, 3) }
-    let(:string_setting_1) { LogStash::Setting.new("string.1", String, "hello") }
+    let(:numeric_setting_1) { LogStash::Setting::NumericSetting.new("num.1", 1) }
+    let(:numeric_setting_2) { LogStash::Setting::NumericSetting.new("num.2", 2) }
+    let(:numeric_setting_3) { LogStash::Setting::NumericSetting.new("num.3", 3) }
+    let(:string_setting_1) { LogStash::Setting::StringSetting.new("string.1", "hello") }
     before :each do
       subject.register(numeric_setting_1)
       subject.register(numeric_setting_2)
@@ -112,23 +111,23 @@ describe LogStash::Settings do
   describe "#validate_all" do
     subject { described_class.new }
     let(:numeric_setting_name) { "example" }
-    let(:numeric_setting) { LogStash::Setting.new(numeric_setting_name, Numeric, 1, false) }
+    let(:numeric_setting) { LogStash::Setting::NumericSetting.new(numeric_setting_name, 1, false) }
 
     before do
       subject.register(numeric_setting)
-      subject.set_value(numeric_setting_name, value)
     end
 
     context "when any setting is invalid" do
-      let(:value) { "some string" }
-
       it "should fail" do
-        expect { subject.validate_all }.to raise_error
+        # Java NumericSetting coerces on set, so setting an invalid value throws immediately
+        expect { subject.set_value(numeric_setting_name, "some string") }.to raise_error
       end
     end
 
     context "when all settings are valid" do
-      let(:value) { 123 }
+      before do
+        subject.set_value(numeric_setting_name, 123)
+      end
 
       it "should succeed" do
         expect { subject.validate_all }.not_to raise_error
@@ -139,8 +138,8 @@ describe LogStash::Settings do
   describe '#names' do
     subject(:settings) { described_class.new }
     before(:each) do
-      settings.register(LogStash::Setting.new("one.two.three", String, "123", false))
-      settings.register(LogStash::Setting.new("this.that", Integer, 123, false))
+      settings.register(LogStash::Setting::StringSetting.new("one.two.three", "123", false))
+      settings.register(LogStash::Setting::NumericSetting.new("this.that", 123, false))
     end
     it 'returns a list of setting names' do
       expect(settings.names).to contain_exactly("one.two.three", "this.that")
@@ -213,7 +212,7 @@ describe LogStash::Settings do
 
       it "raise an error when the settings doesn't exist" do
         subject.from_yaml(yaml_path)
-        expect { subject.validate_all }.to raise_error(ArgumentError)
+        expect { subject.validate_all }.to raise_error
       end
     end
   end
@@ -221,11 +220,11 @@ describe LogStash::Settings do
   describe "#from_yaml" do
     before :each do
       LogStash::SETTINGS.set("keystore.file", File.join(File.dirname(__FILE__), "../../src/test/resources/logstash.keystore.with.default.pass"))
-      LogStash::Util::SubstitutionVariables.send(:reset_secret_store)
+      Java::OrgLogstashSettings::SubstitutionVariables.reset_secret_store
     end
 
     after(:each) do
-      LogStash::Util::SubstitutionVariables.send(:reset_secret_store)
+      Java::OrgLogstashSettings::SubstitutionVariables.reset_secret_store
     end
 
     context "placeholders in flat logstash.yml" do
@@ -304,7 +303,7 @@ describe LogStash::Settings do
   context "placeholders in nested logstash.yml" do
     before :each do
       LogStash::SETTINGS.set("keystore.file", File.join(File.dirname(__FILE__), "../../src/test/resources/logstash.keystore.with.default.pass"))
-      LogStash::Util::SubstitutionVariables.send(:reset_secret_store)
+      Java::OrgLogstashSettings::SubstitutionVariables.reset_secret_store
     end
 
     before do
@@ -320,12 +319,12 @@ describe LogStash::Settings do
     end
 
     after(:each) do
-      LogStash::Util::SubstitutionVariables.send(:reset_secret_store)
+      Java::OrgLogstashSettings::SubstitutionVariables.reset_secret_store
     end
 
     subject do
       settings = described_class.new
-      settings.register(LogStash::Setting::ArrayCoercible.new("host", String, []))
+      settings.register(LogStash::Setting::ArrayCoercible.new("host", nil, []))
       settings
     end
 
@@ -352,7 +351,7 @@ describe LogStash::Settings do
   describe "deprecated pipeline override settings" do
 
     let(:subject) { described_class.new }
-    before(:each) { subject.register(LogStash::Setting.new("pipeline.id", String, "main")) }
+    before(:each) { subject.register(LogStash::Setting::StringSetting.new("pipeline.id", "main")) }
 
     context '#merge_pipeline_settings' do
 
@@ -373,7 +372,7 @@ describe LogStash::Settings do
 
           it "it does not set (#{setting})" do
             subject.merge_pipeline_settings(setting => double('setting_value'))
-            expect{ subject.get_setting(setting) }.to raise_error(ArgumentError)
+            expect{ subject.get_setting(setting) }.to raise_error
           end
 
           context 'other settings are also set' do

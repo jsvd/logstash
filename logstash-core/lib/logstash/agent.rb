@@ -36,8 +36,8 @@ require "logstash/config/pipeline_config"
 require "logstash/pipeline_action"
 require "logstash/state_resolver"
 require "logstash/pipelines_registry"
-require "logstash/persisted_queue_config_validator"
-require "logstash/pipeline_resource_usage_validator"
+java_import 'org.logstash.execution.PersistedQueueConfigValidator'
+java_import 'org.logstash.execution.PipelineResourceUsageValidator'
 require "stud/trap"
 require "uri"
 require "socket"
@@ -47,6 +47,7 @@ LogStash::Environment.load_locale!
 
 class LogStash::Agent
   include LogStash::Util::Loggable
+  java_import org.logstash.execution.ConvergeResult
   STARTED_AT = Time.now.freeze
 
   attr_reader :metric, :name, :settings, :dispatcher, :ephemeral_id, :pipeline_bus
@@ -113,8 +114,8 @@ class LogStash::Agent
 
     initialize_geoip_database_metrics(metric)
 
-    @pq_config_validator = LogStash::PersistedQueueConfigValidator.new
-    @pipeline_resource_usage_validator = LogStash::PipelineResourceUsageValidator.new(Java::java.lang.Runtime.getRuntime().maxMemory)
+    @pq_config_validator = PersistedQueueConfigValidator.new
+    @pipeline_resource_usage_validator = PipelineResourceUsageValidator.new(Java::java.lang.Runtime.getRuntime().maxMemory)
 
     @dispatcher = LogStash::EventDispatcher.new(self)
     LogStash::PLUGIN_REGISTRY.hooks.register_emitter(self.class, dispatcher)
@@ -230,7 +231,22 @@ class LogStash::Agent
       end
     end
 
-    @pq_config_validator.check(@pipelines_registry.running_user_defined_pipelines, results.response)
+    running_pq_configs = {}
+    @pipelines_registry.running_user_defined_pipelines.each do |id, pipeline|
+      s = pipeline.settings
+      running_pq_configs[id.to_s] = PersistedQueueConfigValidator::PipelineQueueConfig.new(
+        id.to_s, s.get("queue.type"), s.get("queue.max_bytes").to_i,
+        s.get("queue.page_capacity").to_i, s.get("path.queue")
+      )
+    end
+    new_pq_configs = results.response.map do |config|
+      s = config.settings
+      PersistedQueueConfigValidator::PipelineQueueConfig.new(
+        s.get("pipeline.id"), s.get("queue.type"), s.get("queue.max_bytes").to_i,
+        s.get("queue.page_capacity").to_i, s.get("path.queue")
+      )
+    end
+    @pq_config_validator.check(running_pq_configs, new_pq_configs)
 
     converge_result = resolve_actions_and_converge_state(results.response)
     update_metrics(converge_result)
@@ -241,7 +257,13 @@ class LogStash::Agent
           :running_pipelines => running_pipelines.keys,
           :non_running_pipelines => non_running_pipelines.keys
       )
-      @pipeline_resource_usage_validator.check(@pipelines_registry)
+      loaded = @pipelines_registry.loaded_pipelines
+      max_event_count = loaded.inject(0) do |sum, (_, pipeline)|
+        batch_size = pipeline.settings.get("pipeline.batch.size")
+        pipeline_workers = pipeline.settings.get("pipeline.workers")
+        sum + (batch_size * pipeline_workers)
+      end
+      @pipeline_resource_usage_validator.check(loaded.size, max_event_count)
     end
 
     dispatch_events(converge_result)
@@ -409,7 +431,7 @@ class LogStash::Agent
     logger.debug("Converging pipelines state", :actions_count => pipeline_actions.size)
     fail("Illegal access to `LogStash::Agent#converge_state()` without exclusive lock at #{caller[1]}") unless @convergence_lock.owned?
 
-    converge_result = LogStash::ConvergeResult.new(pipeline_actions.size)
+    converge_result = ConvergeResult.new(pipeline_actions.size)
 
     pipeline_actions.map do |action|
       Thread.new(action, converge_result) do |action, converge_result|
@@ -447,7 +469,7 @@ class LogStash::Agent
             error_details[:cause][:backtrace] = cause.backtrace if cause.backtrace
           end
           logger.error('Failed to execute action', error_details)
-          converge_result.add(action, LogStash::ConvergeResult::FailedAction.from_exception(e))
+          converge_result.add(action, ConvergeResult::FailedAction.new(e.message, e.backtrace&.to_a&.join("\n")))
         end
       end
     end.each(&:join)

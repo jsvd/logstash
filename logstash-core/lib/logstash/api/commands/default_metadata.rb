@@ -37,7 +37,7 @@ module LogStash
                         :username => LogStash::SETTINGS.get("xpack.monitoring.elasticsearch.username")
                         })
           end
-          if LogStash::SETTINGS.set?("monitoring.cluster_uuid")
+          if LogStash::SETTINGS.is_set("monitoring.cluster_uuid")
             monitoring = monitoring.merge({:cluster_uuid => LogStash::SETTINGS.get("monitoring.cluster_uuid")})
           end
           res.merge(monitoring.empty? ? {} : {:monitoring => monitoring})
@@ -71,9 +71,9 @@ module LogStash
 
         private
         def enabled_xpack_monitoring?
-          LogStash::SETTINGS.registered?("xpack.monitoring.allow_legacy_collection") &&
+          LogStash::SETTINGS.registered("xpack.monitoring.allow_legacy_collection") &&
           LogStash::SETTINGS.get_value("xpack.monitoring.allow_legacy_collection") &&
-          LogStash::SETTINGS.registered?("xpack.monitoring.enabled") &&
+          LogStash::SETTINGS.registered("xpack.monitoring.enabled") &&
           LogStash::SETTINGS.get("xpack.monitoring.enabled")
         end
       end

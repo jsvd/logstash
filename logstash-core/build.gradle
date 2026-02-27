@@ -115,6 +115,7 @@ tasks.register("javaTests", Test) {
     exclude '/org/logstash/plugins/CounterMetricImplTest.class'
     exclude '/org/logstash/plugins/factory/PluginFactoryExtTest.class'
     exclude '/org/logstash/execution/ObservedExecutionTest.class'
+    exclude '/org/logstash/execution/StateResolverTest.class'
 
     // 10GB is needed by the BufferedTokenizerExtWithSizeLimitTest.givenTooLongInputExtractDoesntOverflow test
     maxHeapSize = "10g"
@@ -153,6 +154,7 @@ tasks.register("rubyTests", Test) {
     include '/org/logstash/plugins/CounterMetricImplTest.class'
     include '/org/logstash/plugins/factory/PluginFactoryExtTest.class'
     include '/org/logstash/execution/ObservedExecutionTest.class'
+    include '/org/logstash/execution/StateResolverTest.class'
 }
 
 test {

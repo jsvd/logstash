@@ -40,7 +40,7 @@ import java.util.Map;
 import java.util.function.Function;
 
 @JRubyClass(name = "JavaInputDelegator")
-public class JavaInputDelegatorExt extends RubyObject {
+public class JavaInputDelegatorExt extends RubyObject implements InputDelegate {
     private static final long serialVersionUID = 1L;
 
     private AbstractNamespacedMetricExt metric;
@@ -144,6 +144,64 @@ public class JavaInputDelegatorExt extends RubyObject {
     @JRubyMethod(name = "reloadable?")
     public IRubyObject isReloadable(final ThreadContext context) {
         return context.tru;
+    }
+
+    // -- InputDelegate interface implementation --
+
+    @Override
+    public String getPluginId() {
+        return input.getId();
+    }
+
+    @Override
+    public String getPluginConfigName() {
+        return input.getName();
+    }
+
+    @Override
+    public void start(final java.util.function.Consumer<org.logstash.Event> eventConsumer) {
+        QueueWriter qw = pipeline.getQueueWriter(input.getId());
+        final QueueWriter queueWriter;
+        if (decoratingQueueWriter != null) {
+            decoratingQueueWriter.setInnerQueueWriter(qw);
+            queueWriter = decoratingQueueWriter;
+        } else {
+            queueWriter = qw;
+        }
+        input.start(event -> {
+            org.logstash.Event logstashEvent = new org.logstash.Event(event);
+            eventConsumer.accept(logstashEvent);
+        });
+    }
+
+    @Override
+    public void stop() {
+        try {
+            input.stop();
+            input.awaitStop();
+        } catch (InterruptedException ex) {
+            // do nothing
+        }
+    }
+
+    @Override
+    public boolean isReloadable() {
+        return true;
+    }
+
+    @Override
+    public boolean isThreadable() {
+        return false;
+    }
+
+    @Override
+    public void register() {
+        // Java inputs do not require registration
+    }
+
+    @Override
+    public void close() {
+        // Java inputs do not require explicit close
     }
 
     @SuppressWarnings("unchecked")
