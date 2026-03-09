@@ -90,7 +90,7 @@ public final class PluginFactoryExtTest extends RubyEnvTestCase {
         final PipelineIR pipelineIR = compilePipeline(sourceWithMetadata);
 
         PluginMetricsFactoryExt metricsFactory = createMetricsFactory();
-        ExecutionContextFactoryExt execContextFactory = createExecutionContextFactory();
+        ExecutionContextFactory execContextFactory = createExecutionContextFactory();
         Map<String, String> envVars = new HashMap<>();
         envVars.put("CUSTOM", "test");
         PluginFactoryExt sut = new PluginFactoryExt(RubyUtil.RUBY, RubyUtil.PLUGIN_FACTORY_CLASS,
@@ -112,12 +112,8 @@ public final class PluginFactoryExtTest extends RubyEnvTestCase {
         return ConfigCompiler.configToPipelineIR(Collections.singletonList(sourceWithMetadata), false, cve);
     }
 
-    private static ExecutionContextFactoryExt createExecutionContextFactory() {
-        ExecutionContextFactoryExt execContextFactory = new ExecutionContextFactoryExt(RubyUtil.RUBY,
-                RubyUtil.EXECUTION_CONTEXT_FACTORY_CLASS);
-        execContextFactory.initialize(RubyUtil.RUBY.getCurrentContext(), null, null,
-                RubyUtil.RUBY.newString("no DLQ"));
-        return execContextFactory;
+    private static ExecutionContextFactory createExecutionContextFactory() {
+        return new ExecutionContextFactory(null, null, RubyUtil.RUBY.newString("no DLQ"));
     }
 
     private static PluginMetricsFactoryExt createMetricsFactory() {

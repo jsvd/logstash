@@ -16,6 +16,7 @@
 # under the License.
 
 require "logstash/instrument/metric_store"
+require "logstash/instrument/snapshot"
 require "concurrent/timer_task"
 require "observer"
 require "singleton"

@@ -15,46 +15,51 @@
 # specific language governing permissions and limitations
 # under the License.
 
+java_import org.logstash.execution.StateResolver
+java_import org.logstash.execution.PipelineActionType
+
 module LogStash
-  # In the beginning I was using this code as a method in the Agent class directly
-  # But with the plugins system I think we should be able to swap what kind of action would be run.
-  #
-  # Lets take the example of dynamic source, where the pipeline config and settings are located and
-  # managed outside of the machine.
   class StateResolver
     def initialize(metric)
       @metric = metric
+      @java_resolver = Java::OrgLogstashExecution::StateResolver.new
     end
 
     def resolve(pipelines_registry, pipeline_configs)
-      actions = []
+      existing_configs = java.util.HashMap.new
+      running_ids = java.util.HashSet.new
+      non_running_ids = java.util.HashSet.new
 
-      pipeline_configs.each do |pipeline_config|
-        pipeline = pipelines_registry.get_pipeline(pipeline_config.pipeline_id)
-
-        if pipeline.nil?
-          actions << LogStash::PipelineAction::Create.new(pipeline_config, @metric)
-        else
-          if pipeline_config != pipeline.pipeline_config
-            actions << LogStash::PipelineAction::Reload.new(pipeline_config, @metric)
-          end
-        end
+      pipelines_registry.running_pipelines(include_loading: true).each do |id, pipeline|
+        id_str = id.to_s
+        running_ids.add(id_str)
+        existing_configs.put(id_str, pipeline.pipeline_config)
       end
 
-      configured_pipelines = pipeline_configs.each_with_object(Set.new) { |config, set| set.add(config.pipeline_id.to_sym) }
+      pipelines_registry.non_running_pipelines.each do |id, pipeline|
+        id_str = id.to_s
+        non_running_ids.add(id_str)
+        existing_configs.put(id_str, pipeline.pipeline_config)
+      end
 
-      # If one of the running pipeline is not in the pipeline_configs, we assume that we need to
-      # stop it and delete it in registry.
-      pipelines_registry.running_pipelines(include_loading: true).keys
-        .select { |pipeline_id| !configured_pipelines.include?(pipeline_id) }
-        .each { |pipeline_id| actions << LogStash::PipelineAction::StopAndDelete.new(pipeline_id) }
+      @java_resolver.resolve(pipeline_configs, existing_configs, running_ids, non_running_ids)
+                     .map { |d| to_ruby_action(d) }
+                     .sort
+    end
 
-      # If one of the terminated pipeline is not in the pipeline_configs, delete it in registry.
-      pipelines_registry.non_running_pipelines.keys
-        .select { |pipeline_id| !configured_pipelines.include?(pipeline_id) }
-        .each { |pipeline_id| actions << LogStash::PipelineAction::Delete.new(pipeline_id)}
+    private
 
-      actions.sort # See logstash/pipeline_action.rb
+    def to_ruby_action(descriptor)
+      case descriptor.getActionType
+      when PipelineActionType::CREATE
+        LogStash::PipelineAction::Create.new(descriptor.getPipelineConfig, @metric)
+      when PipelineActionType::RELOAD
+        LogStash::PipelineAction::Reload.new(descriptor.getPipelineConfig, @metric)
+      when PipelineActionType::STOP_AND_DELETE
+        LogStash::PipelineAction::StopAndDelete.new(descriptor.getPipelineId.to_sym)
+      when PipelineActionType::DELETE
+        LogStash::PipelineAction::Delete.new(descriptor.getPipelineId.to_sym)
+      end
     end
   end
 end

@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.logstash.settings;
 
 import org.apache.logging.log4j.core.test.appender.ListAppender;
@@ -24,9 +25,13 @@ import org.jruby.exceptions.ArgumentError;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
+import org.logstash.util.TimeValue;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -85,5 +90,69 @@ public class TimeValueSettingTest {
         long valueExceedingMaxInt = (long) Integer.MAX_VALUE + 1;
         ArgumentError ex = assertThrows(ArgumentError.class, () -> setting.set(valueExceedingMaxInt));
         assertThat(ex.getMessage()).contains("exceeds the maximum int");
+    }
+
+    @Test
+    public void defaultValueIsParsedFromString() {
+        TimeValueSetting sut = new TimeValueSetting("config.reload.interval", "3s");
+        TimeValue value = sut.value();
+        assertNotNull(value);
+        assertEquals(3_000_000_000L, value.toNanos());
+    }
+
+    @Test
+    public void setWithTimeValueInstance() {
+        TimeValueSetting sut = new TimeValueSetting("test.time", "1s");
+        TimeValue tv = TimeValue.fromValue("5m");
+        sut.set(tv);
+        assertEquals(tv, sut.value());
+    }
+
+    @Test
+    public void setWithIntegerCoercesToNanoseconds() {
+        TimeValueSetting sut = new TimeValueSetting("test.time", "-1", false);
+        sut.set(1000);
+        assertEquals(1000L, sut.value().toNanos());
+    }
+
+    @Test
+    public void setWithLongCoercesToNanoseconds() {
+        TimeValueSetting sut = new TimeValueSetting("test.time", "-1", false);
+        sut.set(5000L);
+        assertEquals(5000L, sut.value().toNanos());
+    }
+
+    @Test
+    public void negativeOneStringDefault() {
+        TimeValueSetting sut = new TimeValueSetting("slowlog.threshold.warn", "-1");
+        assertEquals(-1L, sut.value().toNanos());
+    }
+
+    @Test(expected = org.jruby.exceptions.ArgumentError.class)
+    public void invalidStringThrows() {
+        TimeValueSetting sut = new TimeValueSetting("test.time", "1s");
+        sut.set("invalid");
+    }
+
+    @Test
+    public void resetReturnsToDefault() {
+        TimeValueSetting sut = new TimeValueSetting("test.time", "3s");
+        sut.set("5m");
+        assertNotEquals(TimeValue.fromValue("3s"), sut.value());
+        sut.reset();
+        assertEquals(TimeValue.fromValue("3s"), sut.value());
+    }
+
+    @Test
+    public void isSetReturnsFalseByDefault() {
+        TimeValueSetting sut = new TimeValueSetting("test.time", "3s");
+        assertFalse(sut.isSet());
+    }
+
+    @Test
+    public void isSetReturnsTrueAfterSet() {
+        TimeValueSetting sut = new TimeValueSetting("test.time", "3s");
+        sut.set("5s");
+        assertTrue(sut.isSet());
     }
 }

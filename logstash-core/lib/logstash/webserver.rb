@@ -72,7 +72,7 @@ module LogStash
         warn_ignored(logger, settings, "api.auth.basic.", "api.auth.type")
       end
 
-      if !settings.set?('api.http.host')
+      if !settings.is_set('api.http.host')
         if settings.get('api.ssl.enabled') && settings.get('api.auth.type') == 'basic'
           logger.info("API configured securely with SSL and Basic Auth. Defaulting `api.http.host` to all available interfaces")
           options[:http_host] = '0.0.0.0'
@@ -95,7 +95,7 @@ module LogStash
       settings.names.each do |setting_name|
         next unless setting_name.start_with?(pattern)
         next if setting_name == trigger
-        next unless settings.set?(setting_name)
+        next unless settings.is_set(setting_name)
 
         logger.warn("Setting `#{setting_name}` is ignored because `#{trigger}` is set to `#{trigger_value}`")
       end
@@ -108,7 +108,7 @@ module LogStash
 
     def self.required_setting_with_changing_default(settings, name, trigger, future_value)
       effective_value = required_setting(settings, name, trigger)
-      if !settings.set?(name)
+      if !settings.is_set(name)
         deprecation_logger.deprecated("The default value of `#{name}` will change to `#{future_value}` in a future release of Logstash. Set it to `#{future_value}` to observe the future behavior early, or set it to `#{effective_value}` to lock in the current behavior.")
       end
       effective_value

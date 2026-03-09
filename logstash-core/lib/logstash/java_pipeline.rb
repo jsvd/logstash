@@ -23,7 +23,7 @@ require "logstash/inputs/base"
 require "logstash/outputs/base"
 require "logstash/instrument/collector"
 require "logstash/compiler"
-require "logstash/config/lir_serializer"
+java_import org.logstash.config.ir.LIRSerializer
 require "logstash/worker_loop_thread"
 
 module LogStash; class JavaPipeline < AbstractPipeline
@@ -110,7 +110,7 @@ module LogStash; class JavaPipeline < AbstractPipeline
 
     return pipeline_workers if unsafe_filters.empty?
 
-    if settings.set?("pipeline.workers")
+    if settings.is_set("pipeline.workers")
       if pipeline_workers > 1
         @logger.warn("Warning: Manual override - there are filters that might not work with multiple worker threads", default_logging_keys(:worker_threads => pipeline_workers, :filters => plugins))
       end
@@ -281,7 +281,7 @@ module LogStash; class JavaPipeline < AbstractPipeline
       config_metric.gauge(:dead_letter_queue_path, dlq_writer.get_path.to_absolute_path.to_s) if dlq_enabled?
       config_metric.gauge(:ephemeral_id, ephemeral_id)
       config_metric.gauge(:hash, lir.unique_hash)
-      config_metric.gauge(:graph, ::LogStash::Config::LIRSerializer.serialize(lir))
+      config_metric.gauge(:graph, LIRSerializer.serialize(lir))
 
       pipeline_log_params = default_logging_keys(
         "pipeline.workers" => pipeline_workers,
@@ -349,7 +349,7 @@ module LogStash; class JavaPipeline < AbstractPipeline
 
   def resolve_cluster_uuids
     outputs.each_with_object(Set.new) do |output, cluster_uuids|
-      if LogStash::PluginMetadata.exists?(output.id)
+      if LogStash::PluginMetadata.exists(output.id)
         cluster_uuids << LogStash::PluginMetadata.for_plugin(output.id).get(:cluster_uuid)
       end
     end.to_a.compact
@@ -670,7 +670,7 @@ module LogStash; class JavaPipeline < AbstractPipeline
   def preserve_event_order?(pipeline_workers)
     case settings.get("pipeline.ordered")
     when "auto"
-      if settings.set?("pipeline.workers") && settings.get("pipeline.workers") == 1
+      if settings.is_set("pipeline.workers") && settings.get("pipeline.workers") == 1
         @logger.warn("'pipeline.ordered' is enabled and is likely less efficient, consider disabling if preserving event order is not necessary") unless settings.get("pipeline.system")
         return true
       end

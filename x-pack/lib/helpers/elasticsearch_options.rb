@@ -82,9 +82,9 @@ module LogStash module Helpers
       # the username setting has a default value and should not be included when using another authentication such as cloud_auth or api_key.
       # it should also not be included when no password is set.
       # it is safe to silently remove here since all authentication verifications have been validated at this point.
-      if settings.set?("#{prefix}#{feature}.elasticsearch.cloud_auth") ||
-         settings.set?("#{prefix}#{feature}.elasticsearch.api_key") ||
-         (!settings.set?("#{prefix}#{feature}.elasticsearch.password") && !settings.set?("#{prefix}#{feature}.elasticsearch.username"))
+      if settings.is_set("#{prefix}#{feature}.elasticsearch.cloud_auth") ||
+         settings.is_set("#{prefix}#{feature}.elasticsearch.api_key") ||
+         (!settings.is_set("#{prefix}#{feature}.elasticsearch.password") && !settings.is_set("#{prefix}#{feature}.elasticsearch.username"))
         opts.delete('user')
       end
 
@@ -103,13 +103,13 @@ module LogStash module Helpers
 
     def ssl?(feature, settings, prefix)
       return true if verify_https_scheme(feature, settings, prefix)
-      return true if settings.set?("#{prefix}#{feature}.elasticsearch.cloud_id") # cloud_id always resolves to https hosts
-      return true if settings.set?("#{prefix}#{feature}.elasticsearch.ssl.certificate_authority")
-      return true if settings.set?("#{prefix}#{feature}.elasticsearch.ssl.ca_trusted_fingerprint")
-      return true if settings.set?("#{prefix}#{feature}.elasticsearch.ssl.cipher_suites") && settings.get("#{prefix}#{feature}.elasticsearch.ssl.cipher_suites")&.any?
-      return true if settings.set?("#{prefix}#{feature}.elasticsearch.ssl.truststore.path") && settings.set?("#{prefix}#{feature}.elasticsearch.ssl.truststore.password")
-      return true if settings.set?("#{prefix}#{feature}.elasticsearch.ssl.keystore.path") && settings.set?("#{prefix}#{feature}.elasticsearch.ssl.keystore.password")
-      return true if settings.set?("#{prefix}#{feature}.elasticsearch.ssl.certificate") && settings.set?("#{prefix}#{feature}.elasticsearch.ssl.key")
+      return true if settings.is_set("#{prefix}#{feature}.elasticsearch.cloud_id") # cloud_id always resolves to https hosts
+      return true if settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.certificate_authority")
+      return true if settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.ca_trusted_fingerprint")
+      return true if settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.cipher_suites") && settings.get("#{prefix}#{feature}.elasticsearch.ssl.cipher_suites")&.any?
+      return true if settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.truststore.path") && settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.truststore.password")
+      return true if settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.keystore.path") && settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.keystore.password")
+      return true if settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.certificate") && settings.is_set("#{prefix}#{feature}.elasticsearch.ssl.key")
 
       return false
     end
@@ -123,7 +123,7 @@ module LogStash module Helpers
     # If no settings are configured, then assume that the feature has not been configured.
     def feature_configured?(feature, settings)
       ES_SETTINGS.each do |option|
-        return true if settings.set?("xpack.#{feature}.elasticsearch.#{option}")
+        return true if settings.is_set("xpack.#{feature}.elasticsearch.#{option}")
       end
       false
     end
@@ -131,12 +131,12 @@ module LogStash module Helpers
     private
 
     def validate_authentication!(feature, settings, prefix)
-      provided_cloud_id = settings.set?("#{prefix}#{feature}.elasticsearch.cloud_id")
-      provided_hosts = settings.set?("#{prefix}#{feature}.elasticsearch.hosts")
-      provided_cloud_auth = settings.set?("#{prefix}#{feature}.elasticsearch.cloud_auth")
-      provided_api_key = settings.set?("#{prefix}#{feature}.elasticsearch.api_key")
-      provided_username = settings.set?("#{prefix}#{feature}.elasticsearch.username")
-      provided_password = settings.set?("#{prefix}#{feature}.elasticsearch.password")
+      provided_cloud_id = settings.is_set("#{prefix}#{feature}.elasticsearch.cloud_id")
+      provided_hosts = settings.is_set("#{prefix}#{feature}.elasticsearch.hosts")
+      provided_cloud_auth = settings.is_set("#{prefix}#{feature}.elasticsearch.cloud_auth")
+      provided_api_key = settings.is_set("#{prefix}#{feature}.elasticsearch.api_key")
+      provided_username = settings.is_set("#{prefix}#{feature}.elasticsearch.username")
+      provided_password = settings.is_set("#{prefix}#{feature}.elasticsearch.password")
 
       # note that the username setting has a default value and in the verifications below
       # we can test on the password option being set as a proxy to using basic auth because

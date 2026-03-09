@@ -21,7 +21,6 @@ require "logstash/pipelines_registry"
 describe LogStash::PipelinesRegistry do
   let(:pipeline_id) { "test".to_sym }
   let(:pipeline) { double("Pipeline") }
-  let(:logger) { double("Logger") }
 
   context "at object creation" do
     it "should be empty" do
@@ -72,9 +71,7 @@ describe LogStash::PipelinesRegistry do
           expect(subject.create_pipeline(pipeline_id, pipeline) { "dummy" }).to be_falsey
         end
 
-        it "should not call block and log error if pipeline is not terminated" do
-          expect(LogStash::PipelinesRegistry).to receive(:logger).and_return(logger)
-          expect(logger).to receive(:error)
+        it "should not call block if pipeline is not terminated" do
           expect { |b| subject.create_pipeline(pipeline_id, pipeline, &b) }.not_to yield_control
         end
       end
@@ -144,9 +141,7 @@ describe LogStash::PipelinesRegistry do
 
   context "terminating a pipeline" do
     context "without existing pipeline id" do
-      it "should log error" do
-        expect(LogStash::PipelinesRegistry).to receive(:logger).and_return(logger)
-        expect(logger).to receive(:error)
+      it "should not yield to block for nonexistent pipeline" do
         subject.terminate_pipeline(pipeline_id) { "dummy" }
       end
 
@@ -172,10 +167,8 @@ describe LogStash::PipelinesRegistry do
   end
 
   context "reloading a pipeline" do
-    it "should log error with inexistent pipeline id" do
-      expect(LogStash::PipelinesRegistry).to receive(:logger).and_return(logger)
-      expect(logger).to receive(:error)
-      subject.reload_pipeline(pipeline_id) { }
+    it "should return false with inexistent pipeline id" do
+      expect(subject.reload_pipeline(pipeline_id) { }).to be_falsey
     end
 
     context "with existing pipeline id" do
@@ -235,24 +228,18 @@ describe LogStash::PipelinesRegistry do
 
       it "should not delete pipeline if pipeline is not terminated" do
         expect(pipeline).to receive(:finished_execution?).and_return(false)
-        expect(LogStash::PipelinesRegistry).to receive(:logger).and_return(logger)
-        expect(logger).to receive(:info)
         expect(subject.delete_pipeline(pipeline_id)).to be_falsey
         expect(subject.get_pipeline(pipeline_id)).not_to be_nil
       end
 
       it "should delete pipeline if pipeline is terminated" do
         expect(pipeline).to receive(:finished_execution?).and_return(true)
-        expect(LogStash::PipelinesRegistry).to receive(:logger).and_return(logger)
-        expect(logger).to receive(:info)
         expect(subject.delete_pipeline(pipeline_id)).to be_truthy
         expect(subject.get_pipeline(pipeline_id)).to be_nil
       end
 
       it "should recreate pipeline if pipeline is delete and create again" do
         expect(pipeline).to receive(:finished_execution?).and_return(true)
-        expect(LogStash::PipelinesRegistry).to receive(:logger).and_return(logger)
-        expect(logger).to receive(:info)
         expect(subject.delete_pipeline(pipeline_id)).to be_truthy
         expect(subject.get_pipeline(pipeline_id)).to be_nil
         subject.create_pipeline(pipeline_id, pipeline) { true }
@@ -261,9 +248,7 @@ describe LogStash::PipelinesRegistry do
     end
 
     context "when pipeline is not in registry" do
-      it "should log error" do
-        expect(LogStash::PipelinesRegistry).to receive(:logger).and_return(logger)
-        expect(logger).to receive(:error)
+      it "should return false" do
         expect(subject.delete_pipeline(pipeline_id)).to be_falsey
       end
     end

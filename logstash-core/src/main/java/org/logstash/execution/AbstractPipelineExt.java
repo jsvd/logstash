@@ -54,11 +54,14 @@ import org.jruby.RubyArray;
 import org.jruby.RubyBasicObject;
 import org.jruby.RubyBoolean;
 import org.jruby.RubyClass;
+import org.jruby.RubyHash;
 import org.jruby.RubyString;
 import org.jruby.RubySymbol;
+import org.jruby.RubyThread;
 import org.jruby.anno.JRubyClass;
 import org.jruby.anno.JRubyMethod;
 import org.jruby.javasupport.JavaUtil;
+import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
@@ -102,7 +105,7 @@ import org.logstash.instrument.metrics.counter.LongCounter;
 import org.logstash.instrument.metrics.gauge.LazyDelegatingGauge;
 import org.logstash.instrument.metrics.gauge.NumberGauge;
 import org.logstash.plugins.ConfigVariableExpander;
-import org.logstash.plugins.factory.ExecutionContextFactoryExt;
+import org.logstash.plugins.factory.ExecutionContextFactory;
 import org.logstash.plugins.factory.PluginFactoryExt;
 import org.logstash.plugins.factory.PluginMetricsFactoryExt;
 import org.logstash.secret.store.SecretStore;
@@ -135,6 +138,43 @@ public class AbstractPipelineExt extends RubyBasicObject {
         RubyUtil.RUBY, new IRubyObject[]{STATS_KEY, EVENTS_KEY}
     );
 
+    // Reporter constants (moved from PipelineReporterExt)
+    private static final RubySymbol EVENTS_FILTERED_KEY =
+        RubyUtil.RUBY.newSymbol("events_filtered");
+
+    private static final RubySymbol EVENTS_CONSUMED_KEY =
+        RubyUtil.RUBY.newSymbol("events_consumed");
+
+    private static final RubySymbol INFLIGHT_COUNT_KEY =
+        RubyUtil.RUBY.newSymbol("inflight_count");
+
+    private static final RubySymbol WORKER_STATES_KEY =
+        RubyUtil.RUBY.newSymbol("worker_states");
+
+    private static final RubySymbol OUTPUT_INFO_KEY =
+        RubyUtil.RUBY.newSymbol("output_info");
+
+    private static final RubySymbol THREAD_INFO_KEY =
+        RubyUtil.RUBY.newSymbol("thread_info");
+
+    private static final RubySymbol STALLING_THREADS_INFO_KEY =
+        RubyUtil.RUBY.newSymbol("stalling_threads_info");
+
+    private static final RubySymbol TYPE_KEY_SYM = RubyUtil.RUBY.newSymbol("type");
+
+    private static final RubySymbol ID_KEY_SYM = RubyUtil.RUBY.newSymbol("id");
+
+    private static final RubySymbol STATUS_KEY_SYM = RubyUtil.RUBY.newSymbol("status");
+
+    private static final RubySymbol ALIVE_KEY = RubyUtil.RUBY.newSymbol("alive");
+
+    private static final RubySymbol INDEX_KEY = RubyUtil.RUBY.newSymbol("index");
+
+    private static final RubySymbol CONCURRENCY_KEY = RubyUtil.RUBY.newSymbol("concurrency");
+
+    private static final RubyString DEAD_STATUS =
+        RubyUtil.RUBY.newString("dead").newFrozen();
+
     @SuppressWarnings("serial")
     protected PipelineIR lir;
     private transient CompiledPipeline lirExecution;
@@ -158,7 +198,9 @@ public class AbstractPipelineExt extends RubyBasicObject {
 
     private transient IRubyObject dlqWriter;
 
-    private PipelineReporterExt reporter;
+    private transient PipelineReporter pipelineReporter;
+
+    private transient IRubyObject rubyLogger;
 
     private AbstractWrappedQueueExt queue;
 
@@ -175,6 +217,8 @@ public class AbstractPipelineExt extends RubyBasicObject {
 
     private String lastErrorEvaluationReceived = "";
     private transient DeadLetterQueueWriter javaDlqWriter;
+
+    private transient PipelineConfiguration pipelineConfiguration;
 
     public AbstractPipelineExt(final Ruby runtime, final RubyClass metaClass) {
         super(runtime, metaClass);
@@ -236,9 +280,7 @@ public class AbstractPipelineExt extends RubyBasicObject {
                         new PluginMetricsFactoryExt(
                                 context.runtime, RubyUtil.PLUGIN_METRICS_FACTORY_CLASS
                         ).initialize(context, pipelineId(), metric()),
-                        new ExecutionContextFactoryExt(
-                                context.runtime, RubyUtil.EXECUTION_CONTEXT_FACTORY_CLASS
-                        ).initialize(context, args[3], this, dlqWriter(context)),
+                        new ExecutionContextFactory(args[3], this, dlqWriter(context)),
                         RubyUtil.FILTER_DELEGATOR_CLASS
                 ),
                 getSecretStore(context),
@@ -279,9 +321,8 @@ public class AbstractPipelineExt extends RubyBasicObject {
         final IRubyObject pipelineConfig, final IRubyObject namespacedMetric,
         final IRubyObject rubyLogger)
         throws NoSuchAlgorithmException {
-        reporter = new PipelineReporterExt(
-            context.runtime, RubyUtil.PIPELINE_REPORTER_CLASS).initialize(context, rubyLogger, this
-        );
+        this.rubyLogger = rubyLogger;
+        this.pipelineReporter = new PipelineReporter();
         pipelineSettings = pipelineConfig;
         configString = (RubyString) pipelineSettings.callMethod(context, "config_string");
         configParts = pipelineSettings.toJava(PipelineConfig.class).getConfigParts();
@@ -312,6 +353,14 @@ public class AbstractPipelineExt extends RubyBasicObject {
         } catch (InvalidIRException iirex) {
             throw new IllegalArgumentException(iirex);
         }
+        pipelineConfiguration = new PipelineConfiguration(
+                pipelineId.asJavaString(),
+                configString.asJavaString(),
+                ephemeralId.asJavaString(),
+                configParts,
+                getSetting(context, "pipeline.system").isTrue(),
+                getSetting(context, "pipeline.reloadable").isTrue()
+        );
         return this;
     }
 
@@ -386,6 +435,16 @@ public class AbstractPipelineExt extends RubyBasicObject {
     @JRubyMethod(name = "pipeline_config")
     public final IRubyObject pipelineConfig() {
         return pipelineSettings;
+    }
+
+    /**
+     * Returns the pure Java pipeline configuration, or null if the pipeline
+     * has not yet been initialized.
+     *
+     * @return the PipelineConfiguration, or null
+     */
+    public PipelineConfiguration getPipelineConfiguration() {
+        return pipelineConfiguration;
     }
 
     @JRubyMethod(name = "pipeline_id")
@@ -475,8 +534,16 @@ public class AbstractPipelineExt extends RubyBasicObject {
     }
 
     @JRubyMethod
-    public final PipelineReporterExt reporter() {
-        return reporter;
+    public final AbstractPipelineExt reporter() {
+        return this;
+    }
+
+    /**
+     * Returns the pure Java pipeline reporter delegate.
+     * @return the PipelineReporter delegate
+     */
+    public PipelineReporter getPipelineReporter() {
+        return pipelineReporter;
     }
 
     @JRubyMethod(name = "collect_dlq_stats")
@@ -969,6 +1036,208 @@ public class AbstractPipelineExt extends RubyBasicObject {
     public final RubyString getLastErrorEvaluationReceived(final ThreadContext context) {
         return RubyString.newString(context.runtime, lastErrorEvaluationReceived);
     }
+
+    // ---- Reporter methods (moved from PipelineReporterExt) ----
+
+    /**
+     * The main way of accessing data from the reporter,
+     * this provides a (more or less) consistent snapshot of what's going on in the
+     * pipeline with some extra decoration.
+     * @param context Thread Context
+     * @return Snapshot
+     */
+    @JRubyMethod
+    public ReporterSnapshot snapshot(final ThreadContext context) {
+        return new ReporterSnapshot(context.runtime, RubyUtil.REPORTER_SNAPSHOT_CLASS)
+            .initialize(reporterToHash(context));
+    }
+
+    @JRubyMethod(name = "reporter_to_hash")
+    public RubyHash reporterToHash(final ThreadContext context) {
+        final RubyHash result = RubyHash.newHash(context.runtime);
+        final RubyHash batchMap = (RubyHash) this
+            .callMethod(context, "filter_queue_client")
+            .callMethod(context, "inflight_batches");
+        @SuppressWarnings("rawtypes")
+        final RubyArray workerStates = reporterWorkerStates(context, batchMap);
+        result.op_aset(context, WORKER_STATES_KEY, workerStates);
+        result.op_aset(
+            context,
+            EVENTS_FILTERED_KEY,
+            this.callMethod(context, "events_filtered").callMethod(context, "sum")
+        );
+        result.op_aset(
+            context,
+            EVENTS_CONSUMED_KEY,
+            this.callMethod(context, "events_consumed").callMethod(context, "sum")
+        );
+        result.op_aset(context, OUTPUT_INFO_KEY, reporterOutputInfo(context));
+        result.op_aset(
+            context, THREAD_INFO_KEY, this.callMethod(context, "plugin_threads_info")
+        );
+        result.op_aset(
+            context, STALLING_THREADS_INFO_KEY,
+            this.callMethod(context, "stalling_threads_info")
+        );
+        result.op_aset(
+            context, INFLIGHT_COUNT_KEY,
+            context.runtime.newFixnum(calcInflightCount(context, workerStates))
+        );
+        return result;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes", "deprecation"})
+    private RubyArray reporterWorkerStates(final ThreadContext context, final RubyHash batchMap) {
+        final RubyArray result = context.runtime.newArray();
+        ((Iterable<IRubyObject>) this.callMethod(context, "worker_threads"))
+            .forEach(thread -> {
+                final RubyHash hash = RubyHash.newHash(context.runtime);
+                IRubyObject status = thread.callMethod(context, "status");
+                if (status.isNil()) {
+                    status = DEAD_STATUS;
+                }
+                hash.op_aset(context, STATUS_KEY_SYM, status);
+                hash.op_aset(context, ALIVE_KEY, thread.callMethod(context, "alive?"));
+                hash.op_aset(context, INDEX_KEY, context.runtime.newFixnum(result.size()));
+
+                IRubyObject batchSize = Optional.of((RubyThread) thread)
+                        .map(RubyThread::getNativeThread)
+                        .map(Thread::getId)
+                        .map(id -> batchMap.op_aref(context, context.runtime.newFixnum(id)))
+                        .map(batch -> extractBatchSize(context, batch))
+                        .orElse(context.runtime.newFixnum(0L));
+
+                hash.op_aset(context, INFLIGHT_COUNT_KEY, batchSize);
+                result.add(hash);
+            });
+        return result;
+    }
+
+    private IRubyObject extractBatchSize(final ThreadContext context, final IRubyObject batch) {
+        if (!batch.isNil()) {
+            if (QueueBatch.class.isAssignableFrom(batch.getJavaClass())) {
+                final int filteredSize = batch.toJava(QueueBatch.class).filteredSize();
+                return getRuntime().newFixnum(filteredSize);
+            }
+            if (batch.respondsTo("size")) {
+                return batch.callMethod(context, "size");
+            }
+        }
+        return context.runtime.newFixnum(0L);
+    }
+
+    @SuppressWarnings({"unchecked","rawtypes"})
+    private RubyArray reporterOutputInfo(final ThreadContext context) {
+        final RubyArray result = context.runtime.newArray();
+        final IRubyObject outputsVal = this.callMethod(context, "outputs");
+        final Iterable<IRubyObject> outputIterable;
+        if (outputsVal instanceof Iterable) {
+            outputIterable = (Iterable<IRubyObject>) outputsVal;
+        } else {
+            outputIterable = (Iterable<IRubyObject>) outputsVal.toJava(Iterable.class);
+        }
+        outputIterable.forEach(output -> {
+            final AbstractOutputDelegatorExt delegator = (AbstractOutputDelegatorExt) output;
+            final RubyHash hash = RubyHash.newHash(context.runtime);
+            hash.op_aset(context, TYPE_KEY_SYM, delegator.configName(context));
+            hash.op_aset(context, ID_KEY_SYM, delegator.getId());
+            hash.op_aset(context, CONCURRENCY_KEY, delegator.concurrency(context));
+            result.add(hash);
+        });
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static int calcInflightCount(final ThreadContext context,
+        final Collection<?> workerStates) {
+        return workerStates.stream().mapToInt(
+            state -> ((RubyHash) state).op_aref(context, INFLIGHT_COUNT_KEY)
+                .convertToInteger().getIntValue()
+        ).sum();
+    }
+
+    /**
+     * Inner snapshot class for pipeline reporter snapshots.
+     * This is an immutable copy of the pipeline state,
+     * it is a proxy to a hash to allow us to add methods dynamically to the hash.
+     */
+    public static final class ReporterSnapshot extends RubyBasicObject {
+
+        private static final long serialVersionUID = 1L;
+
+        private static final RubyString INFLIGHT_COUNT_STR =
+            RubyUtil.RUBY.newString("inflight_count").newFrozen();
+
+        private static final RubyString STALLING_THREADS_STR =
+            RubyUtil.RUBY.newString("stalling_threads_info").newFrozen();
+
+        private static final RubyString PLUGIN_STR =
+            RubyUtil.RUBY.newString("plugin").newFrozen();
+
+        private static final RubyString OTHER_STR =
+            RubyUtil.RUBY.newString("other").newFrozen();
+
+        private RubyHash data;
+
+        public ReporterSnapshot(final Ruby runtime, final RubyClass metaClass) {
+            super(runtime, metaClass);
+        }
+
+        public ReporterSnapshot initialize(final IRubyObject data) {
+            this.data = (RubyHash) data;
+            return this;
+        }
+
+        @JRubyMethod(name = "to_hash")
+        public RubyHash toHash() {
+            return data;
+        }
+
+        @JRubyMethod(name = "to_simple_hash")
+        public RubyHash toSimpleHash(final ThreadContext context) {
+            final RubyHash result = RubyHash.newHash(context.runtime);
+            result.op_aset(
+                context, INFLIGHT_COUNT_STR, data.op_aref(context, INFLIGHT_COUNT_STR.intern())
+            );
+            result.op_aset(context, STALLING_THREADS_STR, formatThreadsByPlugin(context));
+            return result;
+        }
+
+        @JRubyMethod(name = {"to_s", "to_str"})
+        public RubyString toStr(final ThreadContext context) {
+            return (RubyString) toSimpleHash(context).to_s(context);
+        }
+
+        @JRubyMethod(name = "method_missing")
+        public IRubyObject methodMissing(final ThreadContext context, final IRubyObject method) {
+            return data.op_aref(context, method);
+        }
+
+        @JRubyMethod(name = "respond_to_missing?")
+        public IRubyObject isRespondToMissing(final ThreadContext context, final IRubyObject method, final IRubyObject includePrivate) {
+            return context.tru;
+        }
+
+        @JRubyMethod(name = "format_threads_by_plugin")
+        @SuppressWarnings("unchecked")
+        public RubyHash formatThreadsByPlugin(final ThreadContext context) {
+            final RubyHash result = RubyHash.newHash(context.runtime);
+            ((Iterable<?>) data.get(STALLING_THREADS_STR.intern())).forEach(thr -> {
+                final RubyHash threadInfo = (RubyHash) thr;
+                IRubyObject key = threadInfo.delete(context, PLUGIN_STR, Block.NULL_BLOCK);
+                if (key.isNil()) {
+                    key = OTHER_STR;
+                }
+                if (result.op_aref(context, key).isNil()) {
+                    result.op_aset(context, key, context.runtime.newArray());
+                }
+                ((RubyArray) result.op_aref(context, key)).append(threadInfo);
+            });
+            return result;
+        }
+    }
+
+    // ---- End reporter methods ----
 
     private static class ScopedFlowMetrics {
         enum Scope {

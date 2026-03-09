@@ -16,120 +16,28 @@
 # under the License.
 
 require "fileutils"
-require "delegate"
 
-require "logstash/util/substitution_variables"
-require "logstash/util/time_value"
-require "i18n"
+# Ensure Java SubstitutionVariables uses JRuby's ENV for environment variable access
+# (System.getenv() returns a cached snapshot that doesn't see runtime ENV changes)
+Java::OrgLogstashSettings::SubstitutionVariables.set_environment_accessor(->(name) { ENV[name] })
 
 module LogStash
-  class Settings
+  class Settings < Java::OrgLogstashSettings::SettingsContainer
 
-    include LogStash::Util::SubstitutionVariables
     include LogStash::Util::Loggable
 
-    # The `LOGGABLE_PROXY` is included into `LogStash::Setting` to make all
-    # settings-related logs and deprecations come from the same logger.
-    LOGGABLE_PROXY = Module.new do
-      define_method(:logger) { Settings.logger }
-      define_method(:deprecation_logger) { Settings.deprecation_logger }
+    PIPELINE_SETTINGS_WHITE_LIST = Java::org.logstash.settings.SettingsContainer::PIPELINE_SETTINGS_WHITE_LIST.to_a.freeze
+    DEPRECATED_PIPELINE_OVERRIDE_SETTINGS = Java::org.logstash.settings.SettingsContainer::DEPRECATED_PIPELINE_OVERRIDE_SETTINGS.to_a.freeze
 
-      def self.included(base)
-        base.extend(self)
-      end
-    end
-
-    # there are settings that the pipeline uses and can be changed per pipeline instance
-    PIPELINE_SETTINGS_WHITE_LIST = [
-      "config.debug",
-      "config.support_escapes",
-      "config.string",
-      "dead_letter_queue.enable",
-      "dead_letter_queue.flush_interval",
-      "dead_letter_queue.max_bytes",
-      "dead_letter_queue.storage_policy",
-      "dead_letter_queue.retain.age",
-      "metric.collect",
-      "pipeline.plugin_classloaders",
-      "path.config",
-      "path.dead_letter_queue",
-      "path.queue",
-      "pipeline.batch.delay",
-      "pipeline.batch.output_chunking.growth_threshold_factor",
-      "pipeline.batch.metrics.sampling_mode",
-      "pipeline.batch.size",
-      "pipeline.id",
-      "pipeline.reloadable",
-      "pipeline.system",
-      "pipeline.workers",
-      "pipeline.ordered",
-      "pipeline.ecs_compatibility",
-      "queue.checkpoint.acks",
-      "queue.checkpoint.interval", # remove it for #17155
-      "queue.checkpoint.writes",
-      "queue.checkpoint.retry",
-      "queue.compression",
-      "queue.drain",
-      "queue.max_bytes",
-      "queue.max_events",
-      "queue.page_capacity",
-      "queue.type",
-    ]
-
-    # These are deprecated as pipeline override settings, they still exist as process-level settings
-    DEPRECATED_PIPELINE_OVERRIDE_SETTINGS = [
-      "config.reload.automatic",
-      "config.reload.interval",
-    ]
-
-    def initialize
-      @settings = {}
-      # Theses settings were loaded from the yaml file
-      # but we didn't find any settings to validate them,
-      # lets keep them around until we do `validate_all` at that
-      # time universal plugins could have added new settings.
-      @transient_settings = {}
-    end
-
-    def register(setting)
-      # Method #with_deprecated_alias returns collection containing couple of other settings.
-      # In case the method is implemented in Ruby returns an Array while for the Java implementation
-      # return a List, so the following type checking before going deep by one layer.
-      return setting.map { |s| register(s) } if setting.kind_of?(Array) || setting.kind_of?(java.util.List)
-
-      if @settings.key?(setting.name)
-        raise ArgumentError.new("Setting \"#{setting.name}\" has already been registered as #{setting.inspect}")
-      else
-        @settings[setting.name] = setting
-      end
-    end
-
-    def registered?(setting_name)
-       @settings.key?(setting_name)
-    end
-
-    def get_setting(setting_name)
-      setting = @settings[setting_name]
-      raise ArgumentError.new("Setting \"#{setting_name}\" doesn't exist. Please check if you haven't made a typo.") if setting.nil?
-      setting
-    end
-
+    # Override to accept Regexp arguments and return Settings (not SettingsContainer)
     def get_subset(setting_regexp)
       regexp = setting_regexp.is_a?(Regexp) ? setting_regexp : Regexp.new(setting_regexp)
-      settings = self.class.new
-      @settings.each do |setting_name, setting|
-        next unless setting_name.match(regexp)
-        settings.register(setting.clone)
+      subset = self.class.new
+      names.each do |name|
+        next unless name.match(regexp)
+        subset.register(get_setting(name).clone)
       end
-      settings
-    end
-
-    def names
-      @settings.keys
-    end
-
-    def set?(setting_name)
-      get_setting(setting_name).set?
+      subset
     end
 
     def clone(*args)
@@ -137,38 +45,12 @@ module LogStash
     end
     alias_method :dup, :clone
 
+    # Override to route through Ruby dispatch (enables RSpec mocking on settings)
     def get_default(setting_name)
       get_setting(setting_name).default
     end
 
-    def get_value(setting_name)
-      get_setting(setting_name).value
-    end
-    alias_method :get, :get_value
-
-    def set_value(setting_name, value, graceful = false)
-      get_setting(setting_name).set(value)
-    rescue ArgumentError => e
-      if graceful
-        @transient_settings[setting_name] = value
-      else
-        raise e
-      end
-    end
-    alias_method :set, :set_value
-
-    def to_hash
-      @settings.each_with_object({}) do |(name, setting), hash|
-        next if (setting.kind_of? Setting::DeprecatedAlias) || (setting.kind_of? Java::org.logstash.settings.DeprecatedAlias)
-        hash[name] = setting.value
-      end
-    end
-
-    def merge(hash, graceful = false)
-      hash.each {|key, value| set_value(key, value, graceful) }
-      self
-    end
-
+    # Override to use Ruby deprecation_logger (from Loggable) for testability
     def merge_pipeline_settings(hash, graceful = false)
       hash.each do |key, _|
         if DEPRECATED_PIPELINE_OVERRIDE_SETTINGS.include?(key)
@@ -183,63 +65,51 @@ module LogStash
       merge(hash, graceful)
     end
 
-    def format_settings
-      output = []
-      output << "-------- Logstash Settings (* means modified) ---------"
-      @settings.each do |setting_name, setting|
-        setting.format(output)
-      end
-      output << "--------------- Logstash Settings -------------------"
-      output
-    end
-
-    def reset
-      @settings.values.each(&:reset)
-    end
-
-    def from_yaml(yaml_path, file_name = "logstash.yml")
-      settings = read_yaml(::File.join(yaml_path, file_name))
-      self.merge(deep_replace(flatten_hash(settings), true), true)
-      self
-    end
-
-    def post_process
-      if @post_process_callbacks
-        @post_process_callbacks.each do |callback|
-          callback.call(self)
-        end
-      end
-
-      # because we cannot rely on deprecation logger being wired up when the setters
-      # are initially used, we re-emit setter-related deprecations after all post-processing
-      # hooks have been activated (and therefore after logging has been configured)
-      @settings.each_value do |setting|
-        setting.observe_post_process if setting.respond_to?(:observe_post_process)
-      end
-    end
-
+    # Keep callbacks in Ruby for RSpec mockability (Java dispatch bypasses Ruby mocks)
     def on_post_process(&block)
       @post_process_callbacks ||= []
       @post_process_callbacks << block
     end
 
-    def validate_all
-      # lets merge the transient_settings again to see if new setting were added.
-      self.merge(@transient_settings)
+    def post_process
+      if @post_process_callbacks
+        @post_process_callbacks.each { |callback| callback.call(self) }
+      end
 
-      @settings.each do |name, setting|
-        setting.validate_value
+      # Re-emit setter-related deprecations after post-processing
+      names.each do |name|
+        setting = get_setting(name)
+        setting.observe_post_process if setting.respond_to?(:observe_post_process)
       end
     end
 
-    def ==(other)
-      return false unless other.kind_of?(::LogStash::Settings)
-      self.to_hash == other.to_hash
+    # Override to use Ruby YAML.safe_load and static SubstitutionVariables
+    # (Java fromYaml initializes secret store from instance settings, but the
+    # keystore settings live on the global SETTINGS, not on per-pipeline instances)
+    def from_yaml(yaml_path, file_name = "logstash.yml")
+      settings = YAML.safe_load(IO.read(::File.join(yaml_path, file_name))) || {}
+      # Lazily initialize secret store from wherever keystore settings are available
+      # (this instance, or the global SETTINGS)
+      ensure_secret_store
+      self.merge(Java::OrgLogstashSettings::SubstitutionVariables.deep_replace(flatten_hash(settings), true), true)
+      self
     end
 
     private
-    def read_yaml(path)
-      YAML.safe_load(IO.read(path)) || {}
+
+    def ensure_secret_store
+      source = if registered("keystore.file") && registered("keystore.classname")
+                 self
+               elsif defined?(LogStash::SETTINGS) && LogStash::SETTINGS != self &&
+                     LogStash::SETTINGS.registered("keystore.file") && LogStash::SETTINGS.registered("keystore.classname")
+                 LogStash::SETTINGS
+               end
+      if source
+        Java::OrgLogstashSettings::SubstitutionVariables.init_secret_store(
+          source.get("keystore.file").to_s,
+          source.get("keystore.classname").to_s
+        )
+      end
     end
 
     def flatten_hash(h, f = "", g = {})
@@ -253,394 +123,36 @@ module LogStash
     end
   end
 
-  class Setting
-    include LogStash::Settings::LOGGABLE_PROXY
-
-    attr_reader :wrapped_setting
-
-    def initialize(name, klass, default = nil, strict = true, &validator_proc)
-      unless klass.is_a?(Class)
-        raise ArgumentError.new("Setting \"#{name}\" must be initialized with a class (received #{klass})")
-      end
-      setting_builder = Java::org.logstash.settings.BaseSetting.create(name)
-                            .defaultValue(default)
-                            .strict(strict)
-      if validator_proc
-        setting_builder = setting_builder.validator(validator_proc)
-      end
-
-      @wrapped_setting = setting_builder.build()
-
-      @klass = klass
-      @validator_proc = validator_proc
-
-      validate(default) if strict?
-    end
-
-    def default
-      @wrapped_setting.default
-    end
-
-    def name
-      @wrapped_setting.name
-    end
-
-    def initialize_copy(original)
-      @wrapped_setting = original.wrapped_setting.clone
-    end
-
-    # To be used only internally
-    def update_wrapper(wrapped_setting)
-      @wrapped_setting = wrapped_setting
-    end
-
-    def value
-      @wrapped_setting.value()
-    end
-
-    def set?
-      @wrapped_setting.set?
-    end
-
-    def strict?
-      @wrapped_setting.strict?
-    end
-
-    def set(value)
-      validate(value) if strict?
-      @wrapped_setting.set(value)
-      @wrapped_setting.value
-    end
-
-    def reset
-      @wrapped_setting.reset
-    end
-
-    def to_hash
-      {
-        "name" => @wrapped_setting.name,
-        "klass" => @klass,
-        "value" => @wrapped_setting.value,
-        "value_is_set" => @wrapped_setting.set?,
-        "default" => @wrapped_setting.default,
-        # Proc#== will only return true if it's the same obj
-        # so no there's no point in comparing it
-        # also thereś no use case atm to return the proc
-        # so let's not expose it
-        #"validator_proc" => @validator_proc
-      }
-    end
-
-    def inspect
-      "<#{self.class.name}(#{name}): #{value.inspect}" + (@wrapped_setting.set? ? '' : ' (DEFAULT)') + ">"
-    end
-
-    def ==(other)
-      self.to_hash == other.to_hash
-    end
-
-    def validate_value
-      validate(value)
-    end
-
-    def with_deprecated_alias(deprecated_alias_name, obsoleted_version=nil)
-      SettingWithDeprecatedAlias.wrap(self, deprecated_alias_name, obsoleted_version)
-    end
-
-    ##
-    # Returns a Nullable-wrapped self, effectively making the Setting optional.
-    def nullable
-      Nullable.new(self)
-    end
-
-    def format(output)
-      @wrapped_setting.format(output)
-    end
-
-    def clone(*args)
-      copy = self.dup
-      copy.update_wrapper(@wrapped_setting.clone())
-      copy
-    end
-
-    protected
-    def validate(input)
-      if !input.is_a?(@klass)
-        raise ArgumentError.new("Setting \"#{@wrapped_setting.name}\" must be a #{@klass}. Received: #{input} (#{input.class})")
-      end
-
-      if @validator_proc && !@validator_proc.call(input)
-        raise ArgumentError.new("Failed to validate setting \"#{@wrapped_setting.name}\" with value: #{input}")
-      end
-    end
-
-    class Coercible < Setting
-      def initialize(name, klass, default = nil, strict = true, &validator_proc)
-        unless klass.is_a?(Class)
-          raise ArgumentError.new("Setting \"#{name}\" must be initialized with a class (received #{klass})")
-        end
-
-        @klass = klass
-        @validator_proc = validator_proc
-
-        # needed to have the name method accessible when invoking validate
-        @wrapped_setting = Java::org.logstash.settings.BaseSetting.create(name)
-                                      .defaultValue(default)
-                                      .strict(strict)
-                                      .build()
-
-        if strict
-          coerced_default = coerce(default)
-          validate(coerced_default)
-          updated_default = coerced_default
-        else
-          updated_default = default
-        end
-
-        # default value must be coerced to the right type before being set
-        setting_builder = Java::org.logstash.settings.BaseSetting.create(name)
-                              .defaultValue(updated_default)
-                              .strict(strict)
-        if validator_proc
-          setting_builder = setting_builder.validator(validator_proc)
-        end
-
-        @wrapped_setting = setting_builder.build()
-      end
-
-      def set(value)
-        coerced_value = coerce(value)
-        validate(coerced_value)
-        @wrapped_setting.set(coerced_value)
-        coerced_value
-      end
-
-      def coerce(value)
-        raise NotImplementedError.new("Please implement #coerce for #{self.class}")
-      end
-    end
-    ### Specific settings #####
-
+  module Setting
+    java_import org.logstash.settings.BaseSetting
     java_import org.logstash.settings.BooleanSetting
     java_import org.logstash.settings.NumericSetting
-
     java_import org.logstash.settings.IntegerSetting
     java_import org.logstash.settings.PositiveIntegerSetting
-
-    java_import org.logstash.settings.PortSetting # seems unused
-
+    java_import org.logstash.settings.PortSetting
     java_import org.logstash.settings.PortRangeSetting
-
-    class Validator < Setting
-      def initialize(name, default = nil, strict = true, validator_class = nil)
-        @validator_class = validator_class
-        super(name, ::Object, default, strict)
-      end
-
-      def validate(value)
-        @validator_class.validate(value)
-      end
-    end
-    
     java_import org.logstash.settings.StringSetting
-
     java_import org.logstash.settings.NullableStringSetting
     java_import org.logstash.settings.PasswordSetting
     java_import org.logstash.settings.ValidatedPasswordSetting
-
     java_import org.logstash.settings.CoercibleStringSetting
-
     java_import org.logstash.settings.ExistingFilePathSetting
-
     java_import org.logstash.settings.WritableDirectorySetting
-
     java_import org.logstash.settings.BytesSetting
-
-    java_import org.logstash.settings.TimeValueSetting
-
-    class ArrayCoercible < Coercible
-      def initialize(name, klass, default, strict = true, &validator_proc)
-        @element_class = klass
-        super(name, ::Array, default, strict, &validator_proc)
-      end
-
-      def coerce(value)
-        Array(value)
-      end
-
-      protected
-      def validate(input)
-        if !input.is_a?(@klass)
-          raise ArgumentError.new("Setting \"#{@wrapped_setting.name}\" must be a #{@klass}. Received: #{input} (#{input.class})")
-        end
-
-        unless input.all? {|el| el.kind_of?(@element_class) }
-          raise ArgumentError.new("Values of setting \"#{@wrapped_setting.name}\" must be #{@element_class}. Received: #{input.map(&:class)}")
-        end
-
-        if @validator_proc && !@validator_proc.call(input)
-          raise ArgumentError.new("Failed to validate setting \"#{@wrapped_setting.name}\" with value: #{input}")
-        end
-      end
-    end
-
-    class StringArray < ArrayCoercible
-      def initialize(name, default, strict = true, possible_strings = [], &validator_proc)
-        @possible_strings = possible_strings
-        super(name, ::String, default, strict, &validator_proc)
-      end
-
-      protected
-
-      def validate(value)
-        super(value)
-        return unless @possible_strings&.any?
-
-        invalid_value = coerce(value).reject { |val| @possible_strings.include?(val) }
-        return unless invalid_value.any?
-
-        raise ArgumentError,
-          "Failed to validate the setting \"#{@wrapped_setting.name}\" value(s): #{invalid_value.inspect}. Valid options are: #{@possible_strings.inspect}"
-      end
-    end
-
     java_import org.logstash.settings.NullableSetting
+    java_import org.logstash.settings.TimeValueSetting
+    java_import org.logstash.settings.ArrayCoercibleSetting
+    java_import org.logstash.settings.SplittableStringArraySetting
+    java_import org.logstash.settings.StringArraySetting
+    java_import org.logstash.settings.SettingWithDeprecatedAlias
+    java_import org.logstash.settings.DeprecatedAlias
 
-    # @see Setting#nullable
-    # @api internal
-    class Nullable < SimpleDelegator
-      def validate(value)
-        return true if value.nil?
-
-        __getobj__.send(:validate, value)
-      end
-
-      # prevent delegate from intercepting
-      def validate_value
-        validate(value)
-      end
-    end
-
-    ##
-    # @api private
-    #
-    # A DeprecatedAlias provides a deprecated alias for a setting, and is meant
-    # to be used exclusively through `SettingWithDeprecatedAlias#wrap`
-    class DeprecatedAlias < SimpleDelegator
-      # include LogStash::Util::Loggable
-      alias_method :wrapped, :__getobj__
-      attr_reader :canonical_proxy, :obsoleted_version
-
-      def initialize(canonical_proxy, alias_name, obsoleted_version)
-        @canonical_proxy = canonical_proxy
-        @obsoleted_version = obsoleted_version
-
-        clone = @canonical_proxy.canonical_setting.clone
-        clone.update_wrapper(clone.wrapped_setting.deprecate(alias_name))
-
-        super(clone)
-      end
-
-      def set(value)
-        do_log_setter_deprecation
-        super
-      end
-
-      def value
-        logger.warn(I18n.t("logstash.settings.deprecation.queried",
-                           :deprecated_alias => name,
-                           :canonical_name => canonical_proxy.name))
-        @canonical_proxy.value
-      end
-
-      def validate_value
-        # bypass deprecation warning
-        wrapped.validate_value if set?
-      end
-
-      def observe_post_process
-        do_log_setter_deprecation if set?
-      end
-
-      private
-
-      def do_log_setter_deprecation
-        deprecation_logger.deprecated(
-          I18n.t("logstash.settings.deprecation.set",
-                 :deprecated_alias => name,
-                 :canonical_name => canonical_proxy.name,
-                 :obsoleted_sentences =>
-                   @obsoleted_version.nil? ?
-                     I18n.t("logstash.settings.deprecation.obsoleted_future") :
-                     I18n.t("logstash.settings.deprecation.obsoleted_version", :obsoleted_version => @obsoleted_version))
-        )
-      end
-    end
-
-    ##
-    # A SettingWithDeprecatedAlias wraps any Setting to provide a deprecated
-    # alias, and hooks `Setting#validate_value` to ensure that a deprecation
-    # warning is fired when the setting is provided by its deprecated alias,
-    # or to produce an error when both the canonical name and deprecated
-    # alias are used together.
-    class SettingWithDeprecatedAlias < SimpleDelegator
-
-      ##
-      # Wraps the provided setting, returning a pair of connected settings
-      # including the canonical setting and a deprecated alias.
-      # @param canonical_setting [Setting]: the setting to wrap
-      # @param deprecated_alias_name [String]: the name for the deprecated alias
-      # @param obsoleted_version [String]: the version of Logstash that deprecated alias will be removed
-      #
-      # @return [SettingWithDeprecatedAlias,DeprecatedSetting]
-      def self.wrap(canonical_setting, deprecated_alias_name, obsoleted_version=nil)
-        setting_proxy = new(canonical_setting, deprecated_alias_name, obsoleted_version)
-
-        [setting_proxy, setting_proxy.deprecated_alias]
-      end
-
-      attr_reader :deprecated_alias
-      alias_method :canonical_setting, :__getobj__
-
-      def initialize(canonical_setting, deprecated_alias_name, obsoleted_version)
-        super(canonical_setting)
-
-        @deprecated_alias = DeprecatedAlias.new(self, deprecated_alias_name, obsoleted_version)
-      end
-
-      def set(value)
-        canonical_setting.set(value)
-      end
-
-      def value
-        return super if canonical_setting.set?
-
-        # bypass warning by querying the wrapped setting's value
-        return deprecated_alias.wrapped.value if deprecated_alias.set?
-
-        default
-      end
-
-      def set?
-        canonical_setting.set? || deprecated_alias.set?
-      end
-
-      def format(output)
-        return super unless deprecated_alias.set? && !canonical_setting.set?
-
-        output << "*#{self.name}: #{value.inspect} (via deprecated `#{deprecated_alias.name}`; default: #{default.inspect})"
-      end
-
-      def validate_value
-        if deprecated_alias.set? && canonical_setting.set?
-          fail(ArgumentError, I18n.t("logstash.settings.deprecation.ambiguous",
-                                     :canonical_name => canonical_setting.name,
-                                     :deprecated_alias => deprecated_alias.name))
-        end
-
-        super
-      end
-    end
+    # Backward-compatible aliases
+    TimeValue = TimeValueSetting
+    ArrayCoercible = ArrayCoercibleSetting
+    SplittableStringArray = SplittableStringArraySetting
+    StringArray = StringArraySetting
+    Nullable = NullableSetting
   end
 
   SETTINGS = Settings.new

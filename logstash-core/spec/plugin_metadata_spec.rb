@@ -16,12 +16,13 @@
 # under the License.
 
 require 'spec_helper'
-require 'logstash/plugin_metadata'
 require 'securerandom'
+
+java_import org.logstash.plugins.PluginMetadata
 
 describe LogStash::PluginMetadata do
   let(:registry) { described_class }
-  before(:each) { registry.reset! }
+  before(:each) { registry.reset }
 
   let(:plugin_id) { SecureRandom.uuid }
 
@@ -34,30 +35,30 @@ describe LogStash::PluginMetadata do
         expect(registry.for_plugin(plugin_id)).to_not equal(registry.for_plugin(plugin_id.next))
       end
     end
-    describe '#exists?' do
+    describe '#exists' do
       context 'when the plugin has not yet been registered' do
         it 'returns false' do
-          expect(registry.exists?(plugin_id)).to be false
+          expect(registry.exists(plugin_id)).to be false
         end
       end
       context 'when the plugin has already been registered' do
         before(:each) { registry.for_plugin(plugin_id).set(:foo, 'bar') }
         it 'returns true' do
-          expect(registry.exists?(plugin_id)).to be true
+          expect(registry.exists(plugin_id)).to be true
         end
       end
     end
     describe '#delete_for_plugin' do
       before(:each) { registry.for_plugin(plugin_id).set(:foo, 'bar') }
       it 'deletes the registry' do
-        expect(registry.exists?(plugin_id)).to be true
+        expect(registry.exists(plugin_id)).to be true
         registry.delete_for_plugin(plugin_id)
-        expect(registry.exists?(plugin_id)).to be false
+        expect(registry.exists(plugin_id)).to be false
       end
       it 'deletes the data inside the registry' do
         plugin_registry = registry.for_plugin(plugin_id)
         registry.delete_for_plugin(plugin_id)
-        expect(plugin_registry.set?(:foo)).to be false
+        expect(plugin_registry.is_set(:foo)).to be false
       end
     end
   end
@@ -89,7 +90,7 @@ describe LogStash::PluginMetadata do
         context 'when the new value is nil' do
           it 'unsets the value' do
             instance.set(:foo, nil)
-            expect(instance.set?(:foo)).to be false
+            expect(instance.is_set(:foo)).to be false
           end
         end
       end
@@ -109,16 +110,16 @@ describe LogStash::PluginMetadata do
       end
     end
 
-    describe '#set?' do
+    describe '#is_set' do
       context 'when the key is set' do
         before(:each) { instance.set(:foo, 'bananas')}
         it 'returns true' do
-          expect(instance.set?(:foo)).to be true
+          expect(instance.is_set(:foo)).to be true
         end
       end
       context 'when the key is not set' do
         it 'returns false' do
-          expect(instance.set?(:foo)).to be false
+          expect(instance.is_set(:foo)).to be false
         end
       end
     end
@@ -128,11 +129,11 @@ describe LogStash::PluginMetadata do
         let (:val) { 'bananas' }
         before(:each) { instance.set(:foo, val)}
         it 'returns the value' do
-          expect(instance.delete(:foo)).to be val
+          expect(instance.delete(:foo)).to eq val
         end
         it 'removes the key' do
           instance.delete(:foo)
-          expect(instance.set?(:foo)).to be false
+          expect(instance.is_set(:foo)).to be false
         end
       end
       context 'when the key is not set' do
@@ -142,7 +143,7 @@ describe LogStash::PluginMetadata do
 
         it 'should not be set' do
           instance.delete(:foo)
-          expect(instance.set?(:foo)).to be false
+          expect(instance.is_set(:foo)).to be false
         end
       end
     end
@@ -155,8 +156,8 @@ describe LogStash::PluginMetadata do
         end
         it 'removes all keys' do
           instance.clear
-          expect(instance.set?(:foo)).to be false
-          expect(instance.set?(:bar)).to be false
+          expect(instance.is_set(:foo)).to be false
+          expect(instance.is_set(:bar)).to be false
         end
       end
     end

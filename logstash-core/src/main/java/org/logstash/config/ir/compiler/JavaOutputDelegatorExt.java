@@ -39,7 +39,7 @@ import org.logstash.ext.JrubyEventExtLibrary;
 import org.logstash.instrument.metrics.AbstractMetricExt;
 
 @JRubyClass(name = "JavaOutputDelegator")
-public final class JavaOutputDelegatorExt extends AbstractOutputDelegatorExt {
+public final class JavaOutputDelegatorExt extends AbstractOutputDelegatorExt implements OutputDelegate {
 
     private static final long serialVersionUID = 1L;
 
@@ -128,5 +128,45 @@ public final class JavaOutputDelegatorExt extends AbstractOutputDelegatorExt {
     @Override
     protected IRubyObject reloadable(final ThreadContext context) {
         return context.tru;
+    }
+
+    // -- OutputDelegate interface implementation --
+
+    @Override
+    public String getPluginId() {
+        return getId().asJavaString();
+    }
+
+    @Override
+    public String getPluginConfigName() {
+        return configName.asJavaString();
+    }
+
+    @Override
+    public void multiReceiveEvents(final Collection<org.logstash.Event> events) {
+        final Collection<JrubyEventExtLibrary.RubyEvent> rubyEvents = events.stream()
+                .map(e -> JrubyEventExtLibrary.RubyEvent.newRubyEvent(RubyUtil.RUBY, e))
+                .collect(Collectors.toList());
+        doOutput(rubyEvents);
+    }
+
+    @Override
+    public boolean isReloadable() {
+        return true;
+    }
+
+    @Override
+    public String getConcurrency() {
+        return "java";
+    }
+
+    @Override
+    public void register() {
+        registerAction.run();
+    }
+
+    @Override
+    public void close() {
+        closeAction.run();
     }
 }

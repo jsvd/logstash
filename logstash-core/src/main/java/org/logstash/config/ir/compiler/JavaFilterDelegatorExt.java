@@ -44,7 +44,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @JRubyClass(name = "JavaFilterDelegator")
-public class JavaFilterDelegatorExt extends AbstractFilterDelegatorExt {
+public class JavaFilterDelegatorExt extends AbstractFilterDelegatorExt implements FilterDelegate {
 
     private static final long serialVersionUID = 1L;
 
@@ -145,6 +145,70 @@ public class JavaFilterDelegatorExt extends AbstractFilterDelegatorExt {
     @Override
     protected boolean getPeriodicFlush() {
         return filter.requiresPeriodicFlush();
+    }
+
+    // -- FilterDelegate interface implementation --
+
+    @Override
+    public String getPluginId() {
+        return id.asJavaString();
+    }
+
+    @Override
+    public String getPluginConfigName() {
+        return configName.asJavaString();
+    }
+
+    @Override
+    public Collection<org.logstash.Event> multiFilter(final Collection<org.logstash.Event> events) {
+        final Collection<Event> apiEvents = events.stream()
+                .map(e -> (Event) e)
+                .collect(Collectors.toList());
+        final Collection<Event> outputEvents = filter.filter(apiEvents, filterMatchListener);
+        return outputEvents.stream()
+                .map(e -> (org.logstash.Event) e)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Collection<org.logstash.Event> flush(final boolean finalFlush) {
+        if (filter.requiresFlush()) {
+            final Collection<Event> outputEvents = filter.flush(filterMatchListener);
+            return outputEvents.stream()
+                    .map(e -> (org.logstash.Event) e)
+                    .collect(Collectors.toList());
+        }
+        return java.util.Collections.emptyList();
+    }
+
+    @Override
+    public boolean hasFlush() {
+        return getHasFlush();
+    }
+
+    @Override
+    public boolean hasPeriodicFlush() {
+        return getPeriodicFlush();
+    }
+
+    @Override
+    public boolean isThreadsafe() {
+        return true;
+    }
+
+    @Override
+    public boolean isReloadable() {
+        return true;
+    }
+
+    @Override
+    public void register() {
+        // Java filters do not require registration
+    }
+
+    @Override
+    public void close() {
+        filter.close();
     }
 
     @SuppressWarnings("unchecked")

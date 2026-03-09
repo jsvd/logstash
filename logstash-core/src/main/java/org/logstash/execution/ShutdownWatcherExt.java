@@ -63,6 +63,8 @@ public final class ShutdownWatcherExt extends RubyBasicObject {
 
     private transient IRubyObject pipeline;
 
+    private transient ShutdownWatcher delegate;
+
     @JRubyMethod(name = "unsafe_shutdown?", meta = true)
     public static IRubyObject isUnsafeShutdown(final ThreadContext context,
         final IRubyObject recv) {
@@ -92,7 +94,39 @@ public final class ShutdownWatcherExt extends RubyBasicObject {
                 }
             }
         }
+        // Create a pure Java delegate with a no-op PipelineMonitor adapter.
+        // The actual shutdown logic still uses JRuby pipeline calls, but the delegate
+        // provides the pure Java stall-detection algorithm for future use.
+        delegate = new ShutdownWatcher(new ShutdownWatcher.PipelineMonitor() {
+            @Override
+            public boolean isFinishedExecution() {
+                return pipeline.callMethod(context, "finished_execution?").isTrue();
+            }
+
+            @Override
+            public boolean isWorkersDraining() {
+                return pipeline.callMethod(context, "worker_threads_draining?").isTrue();
+            }
+
+            @Override
+            public String getPipelineId() {
+                return pipeline.callMethod(context, "pipeline_id").asJavaString();
+            }
+
+            @Override
+            public PipelineReporter.Snapshot getSnapshot() {
+                return null; // Snapshot creation still goes through JRuby path
+            }
+        }, cyclePeriod * 1000L, reportEvery, abortThreshold);
         return this;
+    }
+
+    /**
+     * Returns the pure Java delegate for this shutdown watcher.
+     * @return the ShutdownWatcher delegate
+     */
+    public ShutdownWatcher getDelegate() {
+        return delegate;
     }
 
     @JRubyMethod(name = "pipeline_report_snapshot")

@@ -16,44 +16,40 @@
 # under the License.
 
 require "spec_helper"
-require "logstash/pipeline_resource_usage_validator"
-require_relative '../support/helpers'
 
-describe LogStash::PipelineResourceUsageValidator do
+java_import org.logstash.execution.PipelineResourceUsageValidator
+
+describe PipelineResourceUsageValidator do
   let(:max_heap_size) { 1 * 1024 * 1024 * 1024 } # 1 GB
-  subject { LogStash::PipelineResourceUsageValidator.new(max_heap_size) }
-  let(:logger) { subject.logger }
-  let(:pipelines_registry) { double(:pipelines_registry) }
-  let(:pipeline_count) { 10 }
-
-  before(:each) do
-    allow(subject).to receive(:compute_percentage).and_return(usage_percentage)
-    allow(pipelines_registry).to receive(:size).and_return(pipeline_count)
-  end
+  subject { PipelineResourceUsageValidator.new(max_heap_size) }
 
   context "when memory usage goes above 10% heap" do
-    let(:usage_percentage) { 45 }
-    it "logs a warning message"  do
-      expect(logger).to receive(:warn).with(/may reach up to #{usage_percentage}.*Consider.*pipeline.$/)
-      subject.check(pipelines_registry)
+    it "does not raise" do
+      # 50000 events * 2KB = 100MB => ~9.77% of 1GB, need more
+      # 60000 events * 2KB = 120MB => ~11.72% of 1GB
+      expect { subject.check(10, 60000) }.to_not raise_error
     end
   end
 
   context "when memory usage is below 10% heap" do
-    let(:usage_percentage) { 5 }
-    it "logs a debug message" do
-      expect(logger).to receive(:debug).with(/may reach up to #{usage_percentage}.*bigger\).$/)
-      subject.check(pipelines_registry)
+    it "does not raise" do
+      # 1000 events * 2KB = 2MB => ~0.2% of 1GB
+      expect { subject.check(10, 1000) }.to_not raise_error
     end
   end
 
   context "when there are no pipelines" do
-    let(:pipeline_count) { 0 }
-    let(:usage_percentage) { 0 }
-    it "should not log" do
-      expect(logger).to_not receive(:warn)
-      expect(logger).to_not receive(:debug)
-      subject.check(pipelines_registry)
+    it "does not raise" do
+      expect { subject.check(0, 0) }.to_not raise_error
+    end
+  end
+
+  describe "#compute_percentage" do
+    it "returns correct percentage" do
+      # 50000 events * 2KB * 1024 bytes = 102,400,000 bytes
+      # 102,400,000 / 1,073,741,824 * 100 = 9.54%
+      percentage = subject.compute_percentage(50000)
+      expect(percentage).to be_within(0.1).of(9.54)
     end
   end
 end

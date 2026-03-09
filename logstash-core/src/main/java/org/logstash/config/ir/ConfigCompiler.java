@@ -20,25 +20,21 @@
 
 package org.logstash.config.ir;
 
-import org.jruby.RubyHash;
-import org.jruby.javasupport.JavaUtil;
-import org.jruby.runtime.builtin.IRubyObject;
-import org.logstash.RubyUtil;
 import org.logstash.common.SourceWithMetadata;
+import org.logstash.config.ir.compiler.lscl.LSCLCompiler;
 import org.logstash.config.ir.graph.Graph;
 import org.logstash.config.ir.imperative.Statement;
 import org.logstash.plugins.ConfigVariableExpander;
 
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.stream.Collectors;
 
 import static java.util.stream.Collectors.*;
 
 /**
- * Java Implementation of the config compiler that is implemented by wrapping the Ruby
- * {@code LogStash::Compiler}.
+ * Compiles LSCL (Logstash Configuration Language) sources into pipeline IR.
+ * Uses the pure Java {@link LSCLCompiler} for parsing.
  */
 public final class ConfigCompiler {
 
@@ -53,7 +49,6 @@ public final class ConfigCompiler {
      * @return Compiled {@link PipelineIR}
      * @throws InvalidIRException if the configuration contains errors
      */
-    @SuppressWarnings("unchecked")
     public static PipelineIR configToPipelineIR(final List<SourceWithMetadata> sourcesWithMetadata,
                                                 final boolean supportEscapes, ConfigVariableExpander cve) throws InvalidIRException {
         return compileSources(sourcesWithMetadata, supportEscapes, cve);
@@ -86,27 +81,11 @@ public final class ConfigCompiler {
 
     private static Map<PluginDefinition.Type, Statement> compileImperative(SourceWithMetadata sourceWithMetadata,
                                                                            boolean supportEscapes) {
-        final IRubyObject compiler = RubyUtil.RUBY.executeScript(
-                "require 'logstash/compiler'\nLogStash::Compiler",
-                ""
-        );
-        // invoke Ruby interpreter to execute LSCL treetop
-        final IRubyObject code = compiler.callMethod(RubyUtil.RUBY.getCurrentContext(), "compile_imperative",
-                new IRubyObject[]{
-                        JavaUtil.convertJavaToRuby(RubyUtil.RUBY, sourceWithMetadata),
-                        RubyUtil.RUBY.newBoolean(supportEscapes)
-                });
-        RubyHash hash = (RubyHash) code;
-        Map<PluginDefinition.Type, Statement> result = new HashMap<>();
-        result.put(PluginDefinition.Type.INPUT, readStatementFromRubyHash(hash, "input"));
-        result.put(PluginDefinition.Type.FILTER, readStatementFromRubyHash(hash, "filter"));
-        result.put(PluginDefinition.Type.OUTPUT, readStatementFromRubyHash(hash, "output"));
-        return result;
-    }
-
-    private static Statement readStatementFromRubyHash(RubyHash hash, String key) {
-        IRubyObject inputValue = hash.fastARef(RubyUtil.RUBY.newString(key).intern());
-        return inputValue.toJava(Statement.class);
+        try {
+            return LSCLCompiler.compile(sourceWithMetadata.getText(), sourceWithMetadata, supportEscapes);
+        } catch (InvalidIRException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     private static Map<PluginDefinition.Type, Graph> compileGraph(SourceWithMetadata swm, boolean supportEscapes, ConfigVariableExpander cve) {

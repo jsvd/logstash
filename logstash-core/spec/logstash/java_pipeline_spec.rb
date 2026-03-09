@@ -937,7 +937,7 @@ describe LogStash::JavaPipeline do
         # this is to make sure this test will be valid by having a pipeline.workers default value > 1
         # and not explicitly set.
         expect(settings.get_default("pipeline.workers")).to be > 1
-        expect(settings.set?("pipeline.workers")).to be_falsey
+        expect(settings.is_set("pipeline.workers")).to be_falsey
 
         expect(LogStash::Plugin).to receive(:lookup).with("filter", "dummyfilter").at_least(1).time.and_return(DummyFilter)
         expect(LogStash::Plugin).to receive(:lookup).with(any_args).at_least(3).time.and_call_original

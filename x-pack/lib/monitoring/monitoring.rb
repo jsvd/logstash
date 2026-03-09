@@ -159,10 +159,10 @@ module LogStash
       def monitoring_enabled?(settings)
         log_warn_if_legacy_is_enabled_and_not_allowed(settings)
         return false unless settings.get_value("xpack.monitoring.allow_legacy_collection")
-        return settings.get_value("monitoring.enabled") if settings.set?("monitoring.enabled")
-        return settings.get_value("xpack.monitoring.enabled") if settings.set?("xpack.monitoring.enabled")
+        return settings.get_value("monitoring.enabled") if settings.is_set("monitoring.enabled")
+        return settings.get_value("xpack.monitoring.enabled") if settings.is_set("xpack.monitoring.enabled")
 
-        if settings.set?("xpack.monitoring.elasticsearch.hosts") || settings.set?("xpack.monitoring.elasticsearch.cloud_id")
+        if settings.is_set("xpack.monitoring.elasticsearch.hosts") || settings.is_set("xpack.monitoring.elasticsearch.cloud_id")
           logger.warn("xpack.monitoring.enabled has not been defined, but found elasticsearch configuration. Please explicitly set `xpack.monitoring.enabled: true` in logstash.yml")
           true
         else
@@ -202,7 +202,7 @@ module LogStash
       end
 
       def generate_pipeline_config(settings)
-        if settings.set?("xpack.monitoring.enabled") && settings.set?("monitoring.enabled")
+        if settings.is_set("xpack.monitoring.enabled") && settings.is_set("monitoring.enabled")
           raise ArgumentError.new("\"xpack.monitoring.enabled\" is configured while also \"monitoring.enabled\"")
         end
 
@@ -238,7 +238,7 @@ module LogStash
       end
 
       def any_set?(settings, regexp, to_avoid = [])
-        !settings.get_subset(regexp).to_hash.keys.select{ |k| !to_avoid.include?(k)}.select { |k| settings.set?(k)}.empty?
+        !settings.get_subset(regexp).to_hash.keys.select{ |k| !to_avoid.include?(k)}.select { |k| settings.is_set(k)}.empty?
       end
     end
 

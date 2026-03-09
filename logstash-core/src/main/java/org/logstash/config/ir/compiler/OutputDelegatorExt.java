@@ -28,7 +28,6 @@ import org.jruby.RubyHash;
 import org.jruby.RubyString;
 import org.jruby.anno.JRubyClass;
 import org.jruby.anno.JRubyMethod;
-import org.jruby.runtime.Block;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.logstash.execution.ExecutionContextExt;
@@ -44,22 +43,21 @@ public final class OutputDelegatorExt extends AbstractOutputDelegatorExt {
 
     private transient IRubyObject outputClass;
 
-    private OutputStrategyExt.AbstractOutputStrategyExt strategy;
+    private transient OutputStrategy.AbstractOutputStrategy strategy;
 
     @JRubyMethod(required = 5)
     public OutputDelegatorExt initialize(final ThreadContext context, final IRubyObject[] arguments) {
-        ExecutionContextExt executionContext = (ExecutionContextExt) arguments[2];
         RubyClass klass = (RubyClass) arguments[0];
         AbstractMetricExt metric = (AbstractMetricExt) arguments[1];
-        OutputStrategyExt.OutputStrategyRegistryExt strategyRegistry = (OutputStrategyExt.OutputStrategyRegistryExt) arguments[3];
+        ExecutionContextExt executionContext = (ExecutionContextExt) arguments[2];
+        // arguments[3] is ignored (was strategy registry, now uses OutputStrategy.OutputStrategyRegistry singleton)
         RubyHash args = (RubyHash) arguments[4];
         return initialize(
             context,
             args,
             klass,
             metric,
-            executionContext,
-            strategyRegistry
+            executionContext
         );
     }
 
@@ -67,18 +65,15 @@ public final class OutputDelegatorExt extends AbstractOutputDelegatorExt {
                                          final RubyHash args,
                                          final RubyClass outputClass,
                                          final AbstractMetricExt metric,
-                                         final ExecutionContextExt executionContext,
-                                         final OutputStrategyExt.OutputStrategyRegistryExt strategyRegistry) {
+                                         final ExecutionContextExt executionContext) {
         this.outputClass = outputClass;
         initMetrics(
             args.op_aref(context, RubyString.newString(context.runtime, "id")).asJavaString(),
             metric
         );
-        strategy = (OutputStrategyExt.AbstractOutputStrategyExt) strategyRegistry.classFor(
-            context, concurrency(context)
-        ).newInstance(
-            context, new IRubyObject[]{outputClass, namespacedMetric, executionContext, args},
-            Block.NULL_BLOCK
+        final String concurrencyType = concurrency(context).asJavaString();
+        strategy = OutputStrategy.OutputStrategyRegistry.instance().create(
+            context, concurrencyType, outputClass, namespacedMetric, executionContext, args
         );
         return this;
     }
@@ -87,9 +82,8 @@ public final class OutputDelegatorExt extends AbstractOutputDelegatorExt {
         super(runtime, metaClass);
     }
 
-    @JRubyMethod
     @VisibleForTesting
-    public OutputStrategyExt.AbstractOutputStrategyExt strategy() {
+    public OutputStrategy.AbstractOutputStrategy strategy() {
         return strategy;
     }
 

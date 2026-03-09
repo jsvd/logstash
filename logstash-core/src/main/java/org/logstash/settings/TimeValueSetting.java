@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.logstash.settings;
 
 import co.elastic.logstash.api.DeprecationLogger;
@@ -33,33 +34,36 @@ import java.math.BigInteger;
  */
 public class TimeValueSetting extends Coercible<TimeValue> {
 
-    private static final Logger LOGGER = LogManager.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger(TimeValueSetting.class);
     private static final DeprecationLogger DEPRECATION_LOGGER = new DefaultDeprecationLogger(LOGGER);
 
     public TimeValueSetting(String name, String defaultValue) {
-        super(name, coerceStatic(name, defaultValue), true, noValidator());
+        super(name, TimeValue.fromValue(defaultValue), true, noValidator());
+    }
+
+    public TimeValueSetting(String name, String defaultValue, boolean strict) {
+        super(name, TimeValue.fromValue(defaultValue), strict, noValidator());
     }
 
     @Override
     public TimeValue coerce(Object value) {
-        return coerceStatic(getName(), value);
-    }
-
-    private static TimeValue coerceStatic(String name, Object value) {
+        if (value instanceof TimeValue) {
+            return (TimeValue) value;
+        }
         if (value instanceof Integer || value instanceof Long || value instanceof BigInteger) {
             DEPRECATION_LOGGER.deprecated(
-                    "Integer value for `" + name + "` does not have a time unit and will be interpreted in nanoseconds. " +
+                    "Integer value for `" + getName() + "` does not have a time unit and will be interpreted in nanoseconds. " +
                             "Time units will be required in a future release of Logstash. " +
                             "Acceptable unit suffixes are: `d`, `h`, `m`, `s`, `ms`, `micros`, and `nanos`.");
             if (((Number) value).longValue() > Integer.MAX_VALUE) {
                 throw RubyUtil.RUBY.newArgumentError(
-                        "Numeric value for `" + name + "` exceeds the maximum int (" + Integer.MAX_VALUE +
+                        "Numeric value for `" + getName() + "` exceeds the maximum int (" + Integer.MAX_VALUE +
                         ") supported value for nanoseconds.");
             }
             return new TimeValue(((Number) value).intValue(), "nanosecond");
         } else if (value instanceof Number) {
             throw RubyUtil.RUBY.newArgumentError(
-                    "Non-integer numeric value for `" + name + "` is not supported without a time unit. " +
+                    "Non-integer numeric value for `" + getName() + "` is not supported without a time unit. " +
                             "Please specify a time unit suffix such as `d`, `h`, `m`, `s`, `ms`, `micros`, or `nanos`.");
         }
         return TimeValue.fromValue(value);

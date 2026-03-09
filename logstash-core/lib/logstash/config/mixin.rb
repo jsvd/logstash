@@ -47,7 +47,6 @@ LogStash::Environment.load_locale!
 # }
 #
 module LogStash::Config::Mixin
-  include LogStash::Util::SubstitutionVariables
   include LogStash::Util::Loggable
 
   attr_accessor :config
@@ -93,7 +92,11 @@ module LogStash::Config::Mixin
 
     # Resolve environment variables references
     params.each do |name, value|
-      params[name.to_s] = deep_replace(value, true)
+      begin
+        params[name.to_s] = Java::OrgLogstashSettings::SubstitutionVariables.deep_replace(value, true)
+      rescue Java::OrgLogstashExceptions::ConfigurationException => e
+        raise LogStash::ConfigurationError, e.message
+      end
     end
 
     # Intercept codecs that have not been instantiated
@@ -165,8 +168,6 @@ module LogStash::Config::Mixin
   end # def config_init
 
   module DSL
-    include LogStash::Util::SubstitutionVariables
-
     attr_accessor :flags
 
     # If name is given, set the name and return it.
@@ -417,7 +418,11 @@ module LogStash::Config::Mixin
       # (see LogStash::Inputs::File for example)
       result = nil
 
-      value = deep_replace(value)
+      begin
+        value = Java::OrgLogstashSettings::SubstitutionVariables.deep_replace(value)
+      rescue Java::OrgLogstashExceptions::ConfigurationException => e
+        raise LogStash::ConfigurationError, e.message
+      end
 
       if validator.nil?
         return true, value

@@ -22,7 +22,11 @@ require "logstash/plugins/event_factory_support"
 require "logstash/plugins/ca_trusted_fingerprint_support"
 require "securerandom"
 
-require_relative 'plugin_metadata'
+java_import org.logstash.plugins.PluginMetadata
+
+module LogStash
+  PluginMetadata = Java::OrgLogstashPlugins::PluginMetadata
+end
 
 class LogStash::Plugin
   include LogStash::Util::Loggable

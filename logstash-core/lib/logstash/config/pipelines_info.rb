@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+java_import org.logstash.config.PipelineStatsFormatter
+
 module LogStash; module Config;
   class PipelinesInfo
     def self.format_pipelines_info(agent, metric_store, extended_performance_collection)
@@ -47,9 +49,7 @@ module LogStash; module Config;
     end
 
     def self.format_pipeline_events(stats)
-      result = {}
-      (stats || {}).each { |stage, counter| result[stage.to_s] = counter.value }
-      result
+      PipelineStatsFormatter.formatPipelineEvents(stats)
     end
 
     def self.format_pipeline_vertex_stats(stats, pipeline)
@@ -109,7 +109,7 @@ module LogStash; module Config;
           :pipeline_ephemeral_id => pipeline.ephemeral_id
         }
 
-        if LogStash::PluginMetadata.exists?(plugin_id.to_s)
+        if LogStash::PluginMetadata.exists(plugin_id.to_s)
           plugin_metadata = LogStash::PluginMetadata.for_plugin(plugin_id.to_s)
           cluster_uuid = plugin_metadata&.get(:cluster_uuid)
           segment[:cluster_uuid] = cluster_uuid unless cluster_uuid.nil?
@@ -121,18 +121,9 @@ module LogStash; module Config;
     end
 
     def self.flatten_metrics(hash_or_value, namespaces = [])
-      if hash_or_value.is_a?(Hash)
-        return hash_or_value.reduce({}) do |acc, kv|
-          k, v = kv
-          # We must concat the arrays, creating a copy instead of mutation
-          # to handle the case where there are multiple sibling metrics in a namespace
-          new_namespaces = namespaces.clone
-          new_namespaces << k
-          acc.merge(flatten_metrics(v, new_namespaces))
-        end
-      else
-        { namespaces.join('.') => hash_or_value }
-      end
+      Java::OrgLogstashConfig::PipelineStatsFormatter.flattenMetrics(
+        hash_or_value, namespaces.map(&:to_s).to_java(:string)
+      )
     end
 
     def self.format_queue_stats(pipeline_id, metric_store)

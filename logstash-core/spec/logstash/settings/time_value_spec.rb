@@ -17,6 +17,7 @@
 
 require "spec_helper"
 require "logstash/settings"
+require "logstash/util/time_value"
 
 describe LogStash::Setting::TimeValueSetting do
   subject { described_class.new("option", "-1") }
@@ -44,6 +45,7 @@ describe LogStash::Setting::TimeValueSetting do
         subject.set(5)
         expect(subject.value).to eq(LogStash::Util::TimeValue.new(5, :nanosecond))
         expect(subject.value.to_nanos).to eq(5)
+        # Deprecation is logged internally by the Java TimeValueSetting
       end
     end
   end

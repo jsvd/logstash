@@ -30,7 +30,7 @@ module LogStash
         def validate_value(value, validator)
           return super unless validator == :ecs_compatibility_argument
 
-          value = deep_replace(value)
+          value = Java::OrgLogstashSettings::SubstitutionVariables.deep_replace(value)
           value = hash_or_array(value)
 
           if value.size == 1

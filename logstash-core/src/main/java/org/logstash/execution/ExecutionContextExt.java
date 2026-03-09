@@ -30,10 +30,12 @@ import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.logstash.RubyUtil;
 import org.logstash.common.AbstractDeadLetterQueueWriterExt;
+import org.logstash.common.DlqWriter;
+import org.logstash.common.NullDlqWriter;
 
 /**
  * JRuby extension to provide execution context to the plugins,
- * instantiated by {@link org.logstash.plugins.factory.ExecutionContextFactoryExt}
+ * instantiated by {@link org.logstash.plugins.factory.ExecutionContextFactory}
  * */
 @JRubyClass(name = "ExecutionContext")
 public final class ExecutionContextExt extends RubyObject {
@@ -45,6 +47,8 @@ public final class ExecutionContextExt extends RubyObject {
     private transient IRubyObject agent;
 
     private transient IRubyObject pipeline;
+
+    private transient PipelineContext pipelineContext;
 
     public ExecutionContextExt(final Ruby runtime, final RubyClass metaClass) {
         super(runtime, metaClass);
@@ -60,6 +64,16 @@ public final class ExecutionContextExt extends RubyObject {
         } else {
             dlqWriter = (AbstractDeadLetterQueueWriterExt) RubyUtil.DUMMY_DLQ_WRITER_CLASS.newInstance(context, Block.NULL_BLOCK);
         }
+        // Build pure Java PipelineContext for use by Java callers
+        String pid = null;
+        if (!pipeline.isNil()) {
+            pid = pipeline.callMethod(context, "pipeline_id").asJavaString();
+        }
+        DlqWriter javaDlq = NullDlqWriter.INSTANCE;
+        if (dlqWriter instanceof AbstractDeadLetterQueueWriterExt.PluginDeadLetterQueueWriterExt) {
+            javaDlq = ((AbstractDeadLetterQueueWriterExt.PluginDeadLetterQueueWriterExt) dlqWriter).asDlqWriter();
+        }
+        this.pipelineContext = new PipelineContext(pid, javaDlq);
         return this;
     }
 
@@ -84,5 +98,13 @@ public final class ExecutionContextExt extends RubyObject {
             return context.nil;
         }
         return pipeline.callMethod(context, "pipeline_id");
+    }
+
+    /**
+     * Returns the pure Java {@link PipelineContext} for use by Java callers
+     * that do not need JRuby dependencies.
+     */
+    public PipelineContext asPipelineContext() {
+        return pipelineContext;
     }
 }

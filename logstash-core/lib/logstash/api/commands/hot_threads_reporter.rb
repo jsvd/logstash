@@ -16,6 +16,7 @@
 # under the License.
 
 java_import 'org.logstash.instrument.reports.ThreadsReport'
+java_import 'org.logstash.util.ThreadDump'
 
 class HotThreadsReport
   STRING_SEPARATOR_LENGTH = 80.freeze
@@ -24,7 +25,10 @@ class HotThreadsReport
   def initialize(cmd, options)
     @cmd = cmd
     filter = { 'stacktrace_size' => "#{options.fetch(:stacktrace_size, HOT_THREADS_STACK_TRACES_SIZE_DEFAULT)}" }
-    @thread_dump = ::LogStash::Util::ThreadDump.new(options.merge(:dump => ThreadsReport.generate(filter)))
+    dump = ThreadsReport.generate(filter)
+    top_count = options.fetch(:threads, ThreadDump::THREADS_COUNT_DEFAULT)
+    ignore = options.fetch(:ignore_idle_threads, ThreadDump::IGNORE_IDLE_THREADS_DEFAULT)
+    @thread_dump = ThreadDump.new(dump, top_count, ignore)
   end
 
   def to_s
@@ -52,7 +56,7 @@ class HotThreadsReport
 
   def to_hash
     hash = { :time => Time.now.iso8601, :busiest_threads => @thread_dump.top_count, :threads => [] }
-    @thread_dump.each do |_hash|
+    @thread_dump.filtered_threads.each do |_hash|
       thread_name, thread_path = _hash["thread.name"].split(": ")
       thread = { :name => thread_name,
                  :thread_id => _hash["thread.id"],

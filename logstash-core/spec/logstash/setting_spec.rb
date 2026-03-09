@@ -18,19 +18,18 @@
 require "spec_helper"
 require "logstash/settings"
 
-describe LogStash::Setting do
-  let(:logger) { double("logger") }
+describe LogStash::Setting::NumericSetting do
   describe "#value" do
     context "when using a default value" do
       context "when no value is set" do
-        subject { described_class.new("number", Numeric, 1) }
+        subject { described_class.new("number", 1) }
         it "should return the default value" do
           expect(subject.value).to eq(1)
         end
       end
 
       context "when a value is set" do
-        subject { described_class.new("number", Numeric, 1) }
+        subject { described_class.new("number", 1) }
         let(:new_value) { 2 }
         before :each do
           subject.set(new_value)
@@ -43,14 +42,14 @@ describe LogStash::Setting do
 
     context "when not using a default value" do
       context "when no value is set" do
-        subject { described_class.new("number", Numeric, nil, false) }
+        subject { described_class.new("number", nil, false) }
         it "should return the default value" do
           expect(subject.value).to eq(nil)
         end
       end
 
       context "when a value is set" do
-        subject { described_class.new("number", Numeric, nil, false) }
+        subject { described_class.new("number", nil, false) }
         let(:new_value) { 2 }
         before :each do
           subject.set(new_value)
@@ -64,24 +63,24 @@ describe LogStash::Setting do
 
   describe "#set?" do
     context "when there is not value set" do
-      subject { described_class.new("number", Numeric, 1) }
+      subject { described_class.new("number", 1) }
       it "should return false" do
         expect(subject.set?).to be(false)
       end
     end
     context "when there is a value set" do
-      subject { described_class.new("number", Numeric, 1) }
+      subject { described_class.new("number", 1) }
       before :each do
         subject.set(2)
       end
-      it "should return false" do
+      it "should return true" do
         expect(subject.set?).to be(true)
       end
     end
   end
 
   describe "#set" do
-    subject { described_class.new("number", Numeric, 1) }
+    subject { described_class.new("number", 1) }
     it "should change the value of a setting" do
       expect(subject.value).to eq(1)
       subject.set(4)
@@ -94,37 +93,10 @@ describe LogStash::Setting do
         expect(subject.set?).to eq(true)
       end
     end
-    context "when the argument's class does not match @klass" do
-      it "should throw an exception" do
-        expect { subject.set("not a number") }.to raise_error ArgumentError
-      end
-    end
-    context "when strict=false" do
-      let(:strict) { false }
-      subject { described_class.new("number", Numeric, 1, strict) }
-      before do
-        expect(subject).not_to receive(:validate)
-      end
-
-      it "should not call #validate" do
-        subject.set(123)
-      end
-    end
-    context "when strict=true" do
-      let(:strict) { true }
-      subject { described_class.new("number", Numeric, 1, strict) }
-      before do
-        expect(subject).to receive(:validate)
-      end
-
-      it "should call #validate" do
-        subject.set(123)
-      end
-    end
   end
 
   describe "#reset" do
-    subject { described_class.new("number", Numeric, 1) }
+    subject { described_class.new("number", 1) }
     context "if value is already set" do
       before :each do
         subject.set(2)
@@ -137,31 +109,6 @@ describe LogStash::Setting do
         expect(subject.set?).to eq(true)
         subject.reset
         expect(subject.set?).to eq(false)
-      end
-    end
-  end
-
-  describe "validator_proc" do
-    let(:default_value) { "small text" }
-    subject { described_class.new("mytext", String, default_value) {|v| v.size < 20 } }
-    context "when validation fails" do
-      let(:new_value) { "very very very very very big text" }
-      it "should raise an exception" do
-        expect { subject.set(new_value) }.to raise_error ArgumentError
-      end
-      it "should not change the value" do
-        subject.set(new_value) rescue nil
-        expect(subject.value).to eq(default_value)
-      end
-    end
-    context "when validation is successful" do
-      let(:new_value) { "smaller text" }
-      it "should not raise an exception" do
-        expect { subject.set(new_value) }.to_not raise_error
-      end
-      it "should change the value" do
-        subject.set(new_value)
-        expect(subject.value).to eq(new_value)
       end
     end
   end

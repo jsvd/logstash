@@ -144,9 +144,9 @@ public class OutputDelegatorTest extends PluginDelegatorTestCase {
     @Test
     public void outputStrategyTests() {
         StrategyPair[] outputStrategies = new StrategyPair[]{
-                new StrategyPair("shared", OutputStrategyExt.SharedOutputStrategyExt.class),
-                new StrategyPair("single", OutputStrategyExt.SingleOutputStrategyExt.class),
-                new StrategyPair("legacy", OutputStrategyExt.LegacyOutputStrategyExt.class)
+                new StrategyPair("shared", OutputStrategy.SharedOutputStrategy.class),
+                new StrategyPair("single", OutputStrategy.SingleOutputStrategy.class),
+                new StrategyPair("legacy", OutputStrategy.LegacyOutputStrategy.class)
         };
 
         for (StrategyPair pair : outputStrategies) {
@@ -158,8 +158,8 @@ public class OutputDelegatorTest extends PluginDelegatorTestCase {
             assertEquals(pair.symbol, outStrategy);
 
             // test that strategy classes are correctly instantiated
-            IRubyObject strategyClass = outputDelegator.strategy();
-            assertThat(strategyClass).isInstanceOf(pair.klazz);
+            OutputStrategy.AbstractOutputStrategy strategy = outputDelegator.strategy();
+            assertThat(strategy).isInstanceOf(pair.klazz);
 
             // test that metrics are properly set on the instance
             assertEquals(outputDelegator.namespacedMetric(), FakeOutClass.latestInstance.getMetricArgs());
@@ -192,13 +192,13 @@ public class OutputDelegatorTest extends PluginDelegatorTestCase {
     }
 
     private OutputDelegatorExt constructOutputDelegator() {
-        return new OutputDelegatorExt(RUBY, RUBY_OUTPUT_DELEGATOR_CLASS).initialize(RUBY.getCurrentContext(), new IRubyObject[]{
+        return new OutputDelegatorExt(RUBY, RUBY_OUTPUT_DELEGATOR_CLASS).initialize(
+            RUBY.getCurrentContext(),
+            pluginArgs,
             FAKE_OUT_CLASS,
             metric,
-            executionContext,
-            OutputStrategyExt.OutputStrategyRegistryExt.instance(RUBY.getCurrentContext(), null),
-            pluginArgs
-        });
+            executionContext
+        );
     }
 
     private RubyHash getMetricStore() {

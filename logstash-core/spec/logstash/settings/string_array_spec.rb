@@ -48,14 +48,14 @@ describe LogStash::Setting::StringArray do
     let(:value) { %w[bar foo] }
 
     context 'when a single given value is not a possible_strings' do
-      it 'should raise an ArgumentError' do
-        expect { subject.set(%w[foo baz]) }.to raise_error(ArgumentError, "Failed to validate the setting \"#{subject.name}\" value(s): [\"baz\"]. Valid options are: #{possible_strings.inspect}")
+      it 'should raise an error' do
+        expect { subject.set(%w[foo baz]) }.to raise_error(Java::JavaLang::IllegalArgumentException, a_string_including("baz"))
       end
     end
 
     context 'when multiple given values are not a possible_strings' do
-      it 'should raise an ArgumentError' do
-        expect { subject.set(%w[foo baz boot]) }.to raise_error(ArgumentError, "Failed to validate the setting \"#{subject.name}\" value(s): [\"baz\", \"boot\"]. Valid options are: #{possible_strings.inspect}")
+      it 'should raise an error' do
+        expect { subject.set(%w[foo baz boot]) }.to raise_error(Java::JavaLang::IllegalArgumentException, a_string_including("baz"))
       end
     end
   end

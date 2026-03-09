@@ -17,6 +17,8 @@
 
 require 'time'
 
+java_import org.logstash.plugins.factory.ExecutionContextFactory
+
 shared_context "execution_context" do
   let(:pipeline) { double("pipeline") }
   let(:pipeline_id) { :main }
@@ -24,7 +26,7 @@ shared_context "execution_context" do
   let(:plugin_id) { :plugin_id }
   let(:plugin_type) { :plugin_type }
   let(:dlq_writer) { double("dlq_writer") }
-  let(:execution_context_factory) { ::LogStash::Plugins::ExecutionContextFactory.new(agent, pipeline, dlq_writer) }
+  let(:execution_context_factory) { ExecutionContextFactory.new(agent, pipeline, dlq_writer) }
   let(:execution_context) do
     execution_context_factory.create(plugin_id, plugin_type)
   end
