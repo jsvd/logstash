@@ -94,4 +94,68 @@ describe LogStash::Instrument::PeriodicPoller::Os do
       end
     end
   end
+
+  context "recorded cgroup metrics (mocked cgroupv2 env)" do
+    subject { described_class.new(metric, {})}
+
+    let(:snapshot_store) { metric.collector.snapshot_metric.metric_store }
+    let(:os_metrics) { snapshot_store.get_shallow(:os) }
+
+    let(:relative_path) { "/system.slice/docker-abc123.scope" }
+    let(:cpuacct_usage_usec) { 5000 }
+    let(:cfs_period_micros) { 100000 }
+    let(:cfs_quota_micros) { 50000 }
+    let(:cpu_stats_number_of_periods) { 10 }
+    let(:cpu_stats_number_of_time_throttled) { 3 }
+    let(:cpu_stats_time_throttled_usec) { 2000 }
+
+    let(:cpu_stat_v2_content) do
+      [
+        "usage_usec #{cpuacct_usage_usec}",
+        "user_usec 3000",
+        "system_usec 2000",
+        "nr_periods #{cpu_stats_number_of_periods}",
+        "nr_throttled #{cpu_stats_number_of_time_throttled}",
+        "throttled_usec #{cpu_stats_time_throttled_usec}"
+      ]
+    end
+
+    let(:cpu_max_content) { ["#{cfs_quota_micros} #{cfs_period_micros}"] }
+
+    before do
+      allow(LogStash::Instrument::PeriodicPoller::Cgroup::CGROUP_RESOURCES).to receive(:cgroup_available?).and_return(false)
+      allow(::File).to receive(:exist?).and_return(true)
+      allow(IO).to receive(:readlines).with("/proc/self/cgroup").and_return(["0::#{relative_path}\n"])
+      allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{relative_path}/cpu.stat").and_return(cpu_stat_v2_content)
+      allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{relative_path}/cpu.max").and_return(cpu_max_content)
+
+      subject.collect
+    end
+
+    def mval(*metric_path)
+      metric_path.reduce(os_metrics) {|acc, k| acc[k]}.value
+    end
+
+    it "should have a value for cgroup cpuacct control_group that is a String" do
+      expect(mval(:cgroup, :cpuacct, :control_group)).to be_a(String)
+    end
+
+    it "should have a value for cgroup cpu control_group that is a String" do
+      expect(mval(:cgroup, :cpu, :control_group)).to be_a(String)
+    end
+
+    [
+      [:cgroup, :cpuacct, :usage_nanos],
+      [:cgroup, :cpu, :cfs_period_micros],
+      [:cgroup, :cpu, :cfs_quota_micros],
+      [:cgroup, :cpu, :stat, :number_of_elapsed_periods],
+      [:cgroup, :cpu, :stat, :number_of_times_throttled],
+      [:cgroup, :cpu, :stat, :time_throttled_nanos]
+    ].each do |path|
+      path = Array(path)
+      it "should have a value for #{path} that is Numeric" do
+        expect(mval(*path)).to be_a(Numeric)
+      end
+    end
+  end
 end
