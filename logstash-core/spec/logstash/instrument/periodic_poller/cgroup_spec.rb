@@ -291,5 +291,265 @@ describe "cgroup stats" do
       end
     end
   end
+
+  # cgroup v2 tests
+
+  describe Cgroup::CGroupV2Resources do
+    subject(:cgroup_v2_resources) { described_class.new }
+    let(:v2_relative_path) { "/system.slice/docker-abc123.scope" }
+    let(:proc_self_cgroup_v2) { ["0::#{v2_relative_path}"] }
+
+    context "method: cgroup_available?" do
+      context "on a v2 system" do
+        before do
+          allow(::File).to receive(:exist?).with("/proc/self/cgroup").and_return(true)
+          allow(::File).to receive(:exist?).with("/sys/fs/cgroup#{v2_relative_path}").and_return(true)
+          allow(IO).to receive(:readlines).with("/proc/self/cgroup").and_return(proc_self_cgroup_v2)
+        end
+
+        it "returns true" do
+          expect(cgroup_v2_resources.cgroup_available?).to be_truthy
+        end
+      end
+
+      context "on a v1 system" do
+        before do
+          allow(::File).to receive(:exist?).with("/proc/self/cgroup").and_return(true)
+          allow(IO).to receive(:readlines).with("/proc/self/cgroup").and_return(proc_self_cgroup_content)
+          allow(::File).to receive(:exist?).with("/sys/fs/cgroup/docker").and_return(false)
+        end
+
+        it "returns false" do
+          expect(cgroup_v2_resources.cgroup_available?).to be_falsey
+        end
+      end
+
+      context "when /proc/self/cgroup does not exist" do
+        before do
+          allow(::File).to receive(:exist?).with("/proc/self/cgroup").and_return(false)
+        end
+
+        it "returns false" do
+          expect(cgroup_v2_resources.cgroup_available?).to be_falsey
+        end
+      end
+    end
+
+    context "method: controller_groups" do
+      before do
+        allow(IO).to receive(:readlines).with("/proc/self/cgroup").and_return(proc_self_cgroup_v2)
+      end
+
+      it "returns cpuacct and cpu v2 resources" do
+        controllers = cgroup_v2_resources.controller_groups
+
+        controller = controllers["cpuacct"]
+        expect(controller).to be_a(Cgroup::CpuAcctV2Resource)
+        expect(controller.base_path).to eq("/sys/fs/cgroup")
+        expect(controller.offset_path).to eq(v2_relative_path)
+
+        controller = controllers["cpu"]
+        expect(controller).to be_a(Cgroup::CpuV2Resource)
+        expect(controller.base_path).to eq("/sys/fs/cgroup")
+        expect(controller.offset_path).to eq(v2_relative_path)
+      end
+    end
+  end
+
+  describe Cgroup::CpuAcctV2Resource do
+    let(:v2_relative_path) { "/system.slice/docker-abc123.scope" }
+    subject(:cpuacct_v2_resource) { described_class.new(v2_relative_path) }
+
+    describe "method: to_hash" do
+      context "when cpu.stat is available" do
+        let(:cpu_stat_content) do
+          ["usage_usec 5000", "user_usec 3000", "system_usec 2000"]
+        end
+        before do
+          allow(::File).to receive(:exist?).and_return(true)
+          allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{v2_relative_path}/cpu.stat").and_return(cpu_stat_content)
+        end
+
+        it "converts usage_usec to nanos" do
+          expect(cpuacct_v2_resource.to_hash).to eq({
+            :control_group => v2_relative_path,
+            :usage_nanos => 5000000
+          })
+        end
+      end
+
+      context "when the files cannot be found" do
+        it "fills in the hash with minus one" do
+          expect(cpuacct_v2_resource.base_path).to eq("/sys/fs/cgroup")
+          expect(cpuacct_v2_resource.offset_path).to eq(v2_relative_path)
+          expect(cpuacct_v2_resource.to_hash).to eq({
+            :control_group => v2_relative_path,
+            :usage_nanos => -1
+          })
+        end
+      end
+    end
+  end
+
+  describe Cgroup::CpuV2Resource do
+    let(:v2_relative_path) { "/system.slice/docker-abc123.scope" }
+    subject(:cpu_v2_resource) { described_class.new(v2_relative_path) }
+
+    describe "method: to_hash" do
+      context "with numeric quota" do
+        let(:cpu_max_content) { ["100000 100000"] }
+        let(:cpu_stat_content) do
+          ["usage_usec 5000", "nr_periods 10", "nr_throttled 3", "throttled_usec 500"]
+        end
+        before do
+          allow(::File).to receive(:exist?).and_return(true)
+          allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{v2_relative_path}/cpu.max").and_return(cpu_max_content)
+          allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{v2_relative_path}/cpu.stat").and_return(cpu_stat_content)
+        end
+
+        it "returns correct hash with numeric quota" do
+          expect(cpu_v2_resource.to_hash).to eq({
+            :control_group => v2_relative_path,
+            :cfs_period_micros => 100000,
+            :cfs_quota_micros => 100000,
+            :stat => {
+              :number_of_elapsed_periods => 10,
+              :number_of_times_throttled => 3,
+              :time_throttled_nanos => 500000
+            }
+          })
+        end
+      end
+
+      context "with 'max' quota (unlimited)" do
+        let(:cpu_max_content) { ["max 100000"] }
+        let(:cpu_stat_content) do
+          ["nr_periods 0", "nr_throttled 0", "throttled_usec 0"]
+        end
+        before do
+          allow(::File).to receive(:exist?).and_return(true)
+          allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{v2_relative_path}/cpu.max").and_return(cpu_max_content)
+          allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{v2_relative_path}/cpu.stat").and_return(cpu_stat_content)
+        end
+
+        it "returns -1 for quota when 'max'" do
+          expect(cpu_v2_resource.to_hash).to eq({
+            :control_group => v2_relative_path,
+            :cfs_period_micros => 100000,
+            :cfs_quota_micros => -1,
+            :stat => {
+              :number_of_elapsed_periods => 0,
+              :number_of_times_throttled => 0,
+              :time_throttled_nanos => 0
+            }
+          })
+        end
+      end
+
+      context "when the files cannot be found" do
+        it "fills in the hash with minus one" do
+          expect(cpu_v2_resource.base_path).to eq("/sys/fs/cgroup")
+          expect(cpu_v2_resource.offset_path).to eq(v2_relative_path)
+          expect(cpu_v2_resource.to_hash).to eq({
+            :cfs_period_micros => -1,
+            :cfs_quota_micros => -1,
+            :control_group => v2_relative_path,
+            :stat => {
+              :number_of_elapsed_periods => -1,
+              :number_of_times_throttled => -1,
+              :time_throttled_nanos => -1
+            }
+          })
+        end
+      end
+    end
+  end
+
+  describe Cgroup do
+    describe "class method: get_all with v2" do
+      let(:v2_relative_path) { "/system.slice/docker-abc123.scope" }
+      let(:proc_self_cgroup_v2) { ["0::#{v2_relative_path}"] }
+      let(:usage_usec) { 5000 }
+      let(:cfs_quota) { 200000 }
+      let(:cfs_period) { 100000 }
+      let(:cpu_stats_number_of_periods) { 10 }
+      let(:cpu_stats_number_of_time_throttled) { 3 }
+      let(:cpu_stats_throttled_usec) { 500 }
+      let(:cpu_max_content) { ["#{cfs_quota} #{cfs_period}"] }
+      let(:cpu_stat_content) do
+        ["usage_usec #{usage_usec}", "nr_periods #{cpu_stats_number_of_periods}", "nr_throttled #{cpu_stats_number_of_time_throttled}", "throttled_usec #{cpu_stats_throttled_usec}"]
+      end
+
+      before do
+        # v1 is unavailable
+        allow(Cgroup::CGROUP_RESOURCES).to receive(:cgroup_available?).and_return(false)
+        allow(Cgroup::CGROUP_V2_RESOURCES).to receive(:cgroup_available?).and_return(true)
+        allow(IO).to receive(:readlines).with("/proc/self/cgroup").and_return(proc_self_cgroup_v2)
+        allow(::File).to receive(:exist?).and_return(true)
+        allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{v2_relative_path}/cpu.stat").and_return(cpu_stat_content)
+        allow(IO).to receive(:readlines).with("/sys/fs/cgroup#{v2_relative_path}/cpu.max").and_return(cpu_max_content)
+      end
+
+      it "returns identical output structure from v2" do
+        expect(described_class.get_all).to match(
+          :cpuacct => {
+            :control_group => v2_relative_path,
+            :usage_nanos => usage_usec * 1000,
+          },
+          :cpu => {
+            :control_group => v2_relative_path,
+            :cfs_period_micros => cfs_period,
+            :cfs_quota_micros => cfs_quota,
+            :stat => {
+              :number_of_elapsed_periods => cpu_stats_number_of_periods,
+              :number_of_times_throttled => cpu_stats_number_of_time_throttled,
+              :time_throttled_nanos => cpu_stats_throttled_usec * 1000
+            }
+          }
+        )
+      end
+    end
+
+    describe "fallback ordering" do
+      it "prefers v1 when both are available" do
+        allow(Cgroup::CGROUP_RESOURCES).to receive(:cgroup_available?).and_return(true)
+        allow(Cgroup::CGROUP_V2_RESOURCES).to receive(:cgroup_available?).and_return(true)
+        expect(Cgroup::CGROUP_RESOURCES).to receive(:controller_groups).and_return({
+          "cpuacct" => Cgroup::CpuAcctResource.new("/"),
+          "cpu" => Cgroup::CpuResource.new("/")
+        })
+        expect(Cgroup::CGROUP_V2_RESOURCES).not_to receive(:controller_groups)
+        allow(::File).to receive(:exist?).and_return(false)
+        described_class.get_all
+      end
+
+      it "falls back to v2 when v1 is unavailable" do
+        allow(Cgroup::CGROUP_RESOURCES).to receive(:cgroup_available?).and_return(false)
+        allow(Cgroup::CGROUP_V2_RESOURCES).to receive(:cgroup_available?).and_return(true)
+        allow(IO).to receive(:readlines).with("/proc/self/cgroup").and_return(["0::/"])
+        allow(::File).to receive(:exist?).and_return(false)
+        expect(Cgroup::CGROUP_V2_RESOURCES).to receive(:controller_groups).and_call_original
+        described_class.get_all
+      end
+
+      it "returns nil when neither v1 nor v2 is available" do
+        allow(Cgroup::CGROUP_RESOURCES).to receive(:cgroup_available?).and_return(false)
+        allow(Cgroup::CGROUP_V2_RESOURCES).to receive(:cgroup_available?).and_return(false)
+        expect(described_class.get_all).to be_nil
+      end
+    end
+
+    context "v2: when an exception is raised" do
+      before do
+        allow(Cgroup::CGROUP_RESOURCES).to receive(:cgroup_available?).and_return(false)
+        allow(Cgroup::CGROUP_V2_RESOURCES).to receive(:cgroup_available?).and_return(true)
+        allow(Cgroup::CGROUP_V2_RESOURCES).to receive(:controller_groups).and_raise("Something went wrong in v2")
+      end
+
+      it "method: get_all returns nil" do
+        expect(described_class.get_all).to be_nil
+      end
+    end
+  end
 end
 end end end
