@@ -116,6 +116,10 @@ module LogStash module Instrument module PeriodicPoller
       private
 
       def resolve_v2_path
+        @v2_path ||= read_v2_path
+      end
+
+      def read_v2_path
         return nil unless ::File.exist?(CGROUP_FILE)
         IO.readlines(CGROUP_FILE).each do |line|
           match = CGROUP_V2_RE.match(line.strip)
