@@ -133,6 +133,10 @@ describe LogStash::Instrument::PeriodicPoller::Os do
     let(:cpu_max_content) { ["#{cpu_quota_micros} #{cpu_period_micros}"] }
 
     before do
+      # Reset memoized state on the singleton so mocks take effect
+      LogStash::Instrument::PeriodicPoller::Cgroup::CGROUP_V2_RESOURCES.instance_variable_set(:@v2_path, nil)
+      LogStash::Instrument::PeriodicPoller::Cgroup.instance_variable_set(:@resolved, false)
+
       allow(::File).to receive(:exist?).and_return(false)
       allow(::File).to receive(:exist?).with("/proc/self/cgroup").and_return(true)
       allow(::File).to receive(:exist?).with("/sys/fs/cgroup#{v2_relative_path}/cpu.stat").and_return(true)
