@@ -530,6 +530,9 @@ describe "cgroup stats" do
       let(:cpu_max_content) { ["#{cfs_quota_micros} #{cfs_period_micros}"] }
 
       before do
+        Cgroup::CGROUP_V2_RESOURCES.instance_variable_set(:@v2_path, nil)
+        Cgroup.instance_variable_set(:@resolved, false)
+
         allow(Cgroup::CGROUP_RESOURCES).to receive(:cgroup_available?).and_return(false)
         allow(::File).to receive(:exist?).and_return(true)
         allow(IO).to receive(:readlines).with("/proc/self/cgroup").and_return(["0::#{relative_path}\n"])
