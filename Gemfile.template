@@ -44,4 +44,3 @@ gem "thwait"
 gem "bigdecimal", "~> 3.1"
 gem "cgi", "~> 0.3.7" # Pins until a new jruby version with updated cgi is released (https://github.com/jruby/jruby/issues/8919)
 gem "jar-dependencies", "= 0.5.4" # Pin to avoid conflict with default
-gem "multi_json", "~> 1.19.1" # Pin until concurrent-ruby pin is lifted, multi_json 1.20.0-java requires concurrent-ruby ~> 1.2
